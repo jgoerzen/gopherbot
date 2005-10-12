@@ -22,10 +22,12 @@ import MissingH.Network
 import Network.Socket
 import System.IO
 import Config
+import Foreign.C.Types
 
 dlItem :: GAddress -> FilePath -> IO ()
 dlItem ga fp =
     do s <- connectTCP (host ga) (fromIntegral . port $ ga)
+       setSockOpt s
        h <- socketToHandle s ReadWriteMode
        hSetBinaryMode h True
        hPutStr h $ (path ga) ++ "\r\n"
@@ -47,3 +49,11 @@ dlTillDot h fp =
           proc' (".\r":_) = []
           proc' (".\r\n":_) = []
           proc' (x:xs) = x : proc' xs
+
+setSockOpt :: Socket -> IO ()
+setSockOpt s =
+    do let fd = fdSocket s
+       configsock fd
+
+foreign import ccall unsafe "cutils.h configsock"
+  configsock :: CInt -> IO ()

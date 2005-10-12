@@ -102,7 +102,7 @@ spider l c fspath =
     do netreferences <- parseGMap fspath
        let refs = filter filt netreferences
        queueItems l c refs
-    where filt a = (not (dtype a) `elem` ['i', '3', '8', '7', '2']) &&
+    where filt a = (not ((dtype a) `elem` ['i', '3', '8', '7', '2'])) &&
                    not (host a `elem` excludeServers)
 
 statsthread :: Lock -> Connection -> MVar [String] -> IO ()
