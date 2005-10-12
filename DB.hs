@@ -23,7 +23,6 @@ import Database.HSQL
 import Database.HSQL.SQLite3
 import Data.Char
 import System.IO
-import Types
 import Data.List
 
 initdb :: IO Connection
@@ -32,16 +31,16 @@ initdb =
     do putStrLn " *** Initializing database system..."
        handleSqlError $
          do c <- connect ("state.sql3") ReadWriteMode
-            initTable c
+            initTables c
             return c
 
 initTables conn = handleSqlError $
-    do t <- table conn
+    do t <- tables conn
        let t2 = map (map toUpper) t
-       if not (elem "FILES" tw)
+       if not (elem "FILES" t2)
           then do execute conn "CREATE TABLE files (host TEXT, port INTEGER,  path TEXT, state TEXT)"
-                  execute conn "CREATE UNIQUE INDEX pending1 ON pending(host, port, path, state)"
-                  execute conn "CREATE INDEX pending2 ON pending(host, port)"
+                  execute conn "CREATE UNIQUE INDEX files1 ON files(host, port, path, state)"
+                  execute conn "CREATE INDEX files2 ON files(host, port)"
           else return ()
 
 updateItem :: Connection -> GAddress -> State -> IO ()
@@ -58,4 +57,25 @@ updateItem conn g s = handleSqlError $
 
 -- | Gets the next item to visit, if any, and sets the status
 -- to Visiting.  Returns Nothing if there is no next item.
-popItem
+popItem :: Connection -> IO (Maybe GAddress)
+popItem conn =
+    do sth <- query conn $ "SELECT * FROM files WHERE state = " ++
+                           (toSqlValue (show NotVisited))
+       h <- fetch sth
+       if h
+          then do h <- getFieldValue sth "host"
+                  p <- getFieldValue sth "port"
+                  pa <- getFieldValue sth "path"
+                  let po = read p
+                  let ga = GAddress {host = h, port = po, path = pa}
+                  closeStatement sth
+                  updateItem conn ga VisitingNow
+                  return (Just ga)
+          else do closeStatement sth
+                  return Nothing
+
+{- | Propogate SQL exceptions to IO monad. -}
+handleSqlError :: IO a -> IO a
+handleSqlError action =
+    catchSql action handler
+    where handler e = fail ("SQL error: " ++ show e)

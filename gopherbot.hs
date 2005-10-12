@@ -19,9 +19,15 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 module Main where
 
 import Config
-import System
+import System.Directory
+import DB
+import Database.HSQL
 
 main =
-    do setWorkingDirectory basedir
-       runScan
+    do setCurrentDirectory baseDir
+       c <- initdb
+       runScan c
+       disconnect c
 
+runScan c =
+    do putStrLn "Hi"
