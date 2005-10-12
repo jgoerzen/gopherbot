@@ -46,19 +46,19 @@ initTables conn = handleSqlError $
 matchClause :: GAddress -> String
 matchClause g =
     "host = " 
-    ++ toSqlValue (host g) ++ " AND port = " 
+    ++ ce (host g) ++ " AND port = " 
     ++ toSqlValue (port g) ++ " AND path = "
-    ++ toSqlValue (path g) ++ " AND dtype = "
+    ++ ce (path g) ++ " AND dtype = "
     ++ toSqlValue [dtype g]
 
 updateItem :: Connection -> GAddress -> State -> IO ()
 updateItem conn g s = handleSqlError $ inTransaction conn (\c ->
     do execute c $ "DELETE FROM files WHERE " ++ matchClause g
        execute c $ "INSERT INTO files VALUES (" ++
-           toSqlValue (host g) ++ ", " ++
+           ce (host g) ++ ", " ++
            toSqlValue (port g) ++ ", " ++
            toSqlValue [dtype g] ++ ", " ++
-           toSqlValue (path g) ++ ", " ++
+           ce (path g) ++ ", " ++
            toSqlValue (show s) ++ ")"
                       )
 
@@ -107,3 +107,9 @@ handleSqlError :: IO a -> IO a
 handleSqlError action =
     catchSql action handler
     where handler e = fail ("SQL error: " ++ show e)
+
+ce :: String -> String
+ce i =
+    '\'' : 
+         (concat $ map (\c -> if c == '\'' then "''" else [c]) i)
+    ++ "'"
