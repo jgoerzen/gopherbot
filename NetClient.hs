@@ -23,6 +23,8 @@ import Network.Socket
 import System.IO
 import Config
 
+-- FIXME: exit after .\r\n for most types.
+
 dlItem :: GAddress -> FilePath -> IO ()
 dlItem ga fp =
     do s <- connectTCP (host ga) (fromIntegral . port $ ga)
