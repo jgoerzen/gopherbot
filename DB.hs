@@ -26,6 +26,7 @@ import System.IO
 import Data.List
 import Utils
 import Control.Exception
+import Control.Monad(when)
 
 initdb :: IO Connection
 
@@ -34,6 +35,12 @@ initdb =
        handleSqlError $
          do c <- connect ("state.sql3") ReadWriteMode
             initTables c
+            r <- getCount c $ "state = " ++ ce (show VisitingNow)
+            when (r > 0) (msg $ "Resetting " ++ (show r) ++ 
+                              " files from VisitingNow to NotVisited.")
+            execute c $ "UPDATE FILES SET STATE = " ++
+                    ce (show NotVisited) ++ " WHERE state = " ++
+                    ce (show VisitingNow)
             return c
 
 initTables conn = handleSqlError $
@@ -67,6 +74,13 @@ updateItemNL conn g s = handleSqlError $ inTransaction conn (\c ->
            toSqlValue (show s) ++ ")"
                                            )
 
+getCount :: Connection -> String -> IO Integer
+getCount conn whereclause =
+    do sth <- query conn $ "SELECT COUNT(*) FROM FILES WHERE " ++ whereclause
+       h <- fetch sth
+       r <- getFieldValue sth "COUNT(*)"
+       closeStatement sth
+       return r
 
 queueItem :: Lock -> Connection -> GAddress -> IO ()
 queueItem lock conn g = withLock lock $ queueItemNL conn g
@@ -77,24 +91,14 @@ queueItems lock conn g =
                                                              
 queueItemNL :: Connection -> GAddress -> IO ()
 queueItemNL conn g = handleSqlError $
-    do sth <- query conn $ "SELECT COUNT(*) FROM FILES WHERE " ++ matchClause g
-       h <- fetch sth
-       (r::Int) <- getFieldValue sth "COUNT(*)"
-       --msg (show r)
+    do r <- getCount conn (matchClause g)
        if r == 0
           then updateItemNL conn g NotVisited
           else return ()
 
-
-
 numToProc :: Connection -> IO Integer
 numToProc conn = handleSqlError $
-    do sth <- query conn $ "SELECT COUNT(*) FROM FILES WHERE state = " ++
-                           (toSqlValue (show NotVisited))
-       h <- fetch sth
-       r <- getFieldValue sth "COUNT(*)"
-       closeStatement sth
-       return r
+    getCount conn $ "state = " ++ (toSqlValue (show NotVisited))
 
 -- | Gets the next item to visit, if any, and sets the status
 -- to Visiting.  Returns Nothing if there is no next item.

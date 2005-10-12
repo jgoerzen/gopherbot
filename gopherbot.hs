@@ -30,6 +30,7 @@ import MissingH.Network
 import NetClient
 import DirParser
 import Control.Concurrent
+import Data.List
 
 main = niceSocketsDo $
     do setCurrentDirectory baseDir
@@ -45,6 +46,7 @@ runScan l c =
           then do mapM_ (\g -> updateItem l c g NotVisited) startingAddresses
           else return ()
        children <- mapM (\_ -> myForkIO (procLoop l c)) [1..numThreads]
+       stats <- forkIO (statsthread l c)
        waitForChildren children
        
 
@@ -74,7 +76,7 @@ procLoop lock c =
 
 procItem lock c n item =
     do t <- myThreadId
-       msg $ " #" ++ (show n) ++ ": " ++ (show item)
+       msg $ show item
        let fspath = getFSPath item
        acquire lock             -- We don't want to stomp on each others mkdir
        createDirectoryIfMissing True (fst . splitFileName $ fspath)
@@ -92,3 +94,19 @@ spider l c fspath =
        queueItems l c refs
     where filt a = (dtype a) /= 'i' &&
                    not (host a `elem` excludeServers)
+
+statsthread :: Lock -> Connection -> IO ()
+statsthread l c =
+    do total <- getCount c "1 = 1"
+       let totaltext = show total ++ " total"
+       statetxts <- mapM (procstate total) states
+       let disp = concat . intersperse ", " $ totaltext : statetxts
+       msg disp
+       threadDelay (30 * 1000000)
+       statsthread l c
+    where states = [NotVisited, VisitingNow, Visited, ErrorState]
+          procstate total s =
+              do r <- getCount c ("state = " ++ toSqlValue (show s))
+                 let pct = r * 100 `div` total
+                 return $ show r ++ " (" ++ show pct ++ "%) " ++ (show s)
+                 
