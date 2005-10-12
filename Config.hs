@@ -18,12 +18,15 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 module Config where
 
-data GAddress = GAddress {host :: String, port :: Int, path :: String}
+data GAddress = GAddress {host :: String, port :: Int, dtype :: Char,
+                          path :: String}
     deriving (Eq, Show)
 
 data State = NotVisited | VisitingNow | Visited
     deriving (Eq, Read, Show)
 
-startingURLs = ["gopher://home.jumpjet.info/11/Gopher_Jewels_2"]
+startingAddresses :: [GAddress]
+startingAddresses = 
+    [GAddress {host="home.jumpjet.info",port= 70,dtype= '1',path= "1/Gopher_Jewels_2"}]
 excludeServers = ["gopher.quux.org", "quux.org"]
 baseDir = "/home/jgoerzen/gopher-arch"

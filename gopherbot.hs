@@ -30,4 +30,14 @@ main =
        disconnect c
 
 runScan c =
-    do putStrLn "Hi"
+    do n <- numToProc c
+       putStrLn $ (show n) ++ " items to process"
+       if n == 0
+          then do mapM_ (\g -> updateItem c g NotVisited) startingAddresses
+          else return ()
+       n' <- numToProc c
+       procLoop c
+
+procLoop c =
+    do n <- numToProc c
+       putStrLn $ (show n) ++ " items to process"

@@ -38,8 +38,8 @@ initTables conn = handleSqlError $
     do t <- tables conn
        let t2 = map (map toUpper) t
        if not (elem "FILES" t2)
-          then do execute conn "CREATE TABLE files (host TEXT, port INTEGER,  path TEXT, state TEXT)"
-                  execute conn "CREATE UNIQUE INDEX files1 ON files(host, port, path, state)"
+          then do execute conn "CREATE TABLE files (host TEXT, port INTEGER, dtype TEXT, path TEXT, state TEXT)"
+                  execute conn "CREATE UNIQUE INDEX files1 ON files(host, port, dtype, path, state)"
                   execute conn "CREATE INDEX files2 ON files(host, port)"
           else return ()
 
@@ -48,12 +48,23 @@ updateItem conn g s = handleSqlError $
     do execute conn $ "DELETE FROM files WHERE host = " 
         ++ toSqlValue (host g) ++ " AND port = " 
         ++ toSqlValue (port g) ++ " AND path = "
-        ++ toSqlValue (path g)
+        ++ toSqlValue (path g) ++ " AND dtype = "
+        ++ toSqlValue [dtype g]
        execute conn $ "INSERT INTO files VALUES (" ++
            toSqlValue (host g) ++ ", " ++
            toSqlValue (port g) ++ ", " ++
+           toSqlValue [dtype g] ++ ", " ++
            toSqlValue (path g) ++ ", " ++
            toSqlValue (show s) ++ ")"
+
+numToProc :: Connection -> IO Integer
+numToProc conn =
+    do sth <- query conn $ "SELECT COUNT(*) FROM FILES WHERE state = " ++
+                           (toSqlValue (show NotVisited))
+       h <- fetch sth
+       r <- getFieldValue sth "COUNT(*)"
+       closeStatement sth
+       return r
 
 -- | Gets the next item to visit, if any, and sets the status
 -- to Visiting.  Returns Nothing if there is no next item.
@@ -66,8 +77,9 @@ popItem conn =
           then do h <- getFieldValue sth "host"
                   p <- getFieldValue sth "port"
                   pa <- getFieldValue sth "path"
+                  dt <- getFieldValue sth "dtype"
                   let po = read p
-                  let ga = GAddress {host = h, port = po, path = pa}
+                  let ga = GAddress {host = h, port = po, path = pa, dtype = head dt}
                   closeStatement sth
                   updateItem conn ga VisitingNow
                   return (Just ga)
