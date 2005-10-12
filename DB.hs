@@ -96,7 +96,7 @@ queueItem lock conn g = withLock lock $ queueItemNL conn g
 
 queueItems :: Lock -> Connection -> [GAddress] -> IO ()
 queueItems lock conn g = 
-    withLock lock $ mapM_ (queueItemNL conn) g
+    mapM_ (queueItem lock conn) g
                                                              
 queueItemNL :: Connection -> GAddress -> IO ()
 queueItemNL conn g = handleSqlError $
@@ -109,8 +109,11 @@ numToProc :: Connection -> IO Integer
 numToProc conn = handleSqlError $
     getCount conn $ "state = " ++ (toSqlValue (show NotVisited))
 
--- | Gets the next item to visit, if any, and sets the status
--- to Visiting.  Returns Nothing if there is no next item.
+{- | Gets the next item to visit, if any, and sets the status
+to Visiting.  Returns Nothing if there is no next item.
+
+General algorithm: get a list of the top (15*numThreads) eligible hosts,
+then pick one. -}
 popItem :: Lock -> Connection -> MVar [String] -> IO (Maybe GAddress)
 popItem lock conn hosts = withLock lock $ handleSqlError $
     do hostspart <- getHostClause hosts
