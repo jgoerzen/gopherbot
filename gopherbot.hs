@@ -28,6 +28,7 @@ import MissingH.Path.FilePath
 import MissingH.Network
 import NetClient
 import DirParser
+import Control.Concurrent
 
 main = niceSocketsDo $
     do setCurrentDirectory baseDir
@@ -54,7 +55,8 @@ procLoop lock c =
                          procLoop lock c
 
 procItem lock c n item =
-    do putStrLn $ "Processing #" ++ (show n) ++ ": " ++ (show item)
+    do t <- myThreadId
+       putStrLn $ (show t) ++ " #" ++ (show n) ++ ": " ++ (show item)
        let fspath = getFSPath item
        acquire lock             -- We don't want to stomp on each others mkdir
        createDirectoryIfMissing True (fst . splitFileName $ fspath)

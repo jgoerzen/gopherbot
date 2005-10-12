@@ -73,7 +73,7 @@ queueItem lock conn g = withLock lock $ queueItemNL conn g
 
 queueItems :: Lock -> Connection -> [GAddress] -> IO ()
 queueItems lock conn g = 
-    withLock lock $ inTransaction conn (\c -> mapM_ (queueItemNL c) g)
+    withLock lock $ mapM_ (queueItemNL conn) g
                                                              
 queueItemNL :: Connection -> GAddress -> IO ()
 queueItemNL conn g = handleSqlError $
