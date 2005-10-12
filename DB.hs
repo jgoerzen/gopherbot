@@ -51,6 +51,8 @@ initTables conn = handleSqlError $
           then do execute conn "CREATE TABLE files (host TEXT, port INTEGER, dtype TEXT, path TEXT, state TEXT)"
                   execute conn "CREATE UNIQUE INDEX files1 ON files(host, port, dtype, path, state)"
                   execute conn "CREATE INDEX files2 ON files(host, port)"
+                  execute conn "CREATE INDEX filesstate ON files (state)"
+                  execute conn "CREATE INDEX files3 ON files(host)"
           else return ()
 
 matchClause :: GAddress -> String
