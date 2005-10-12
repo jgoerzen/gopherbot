@@ -68,16 +68,20 @@ waitForChildren (c:xs) =
        waitForChildren xs
 
 procLoop lock c hl =
-    do n <- numToProc c
-       i <- popItem lock c hl
-       case i of
-         Nothing -> do msg $ "Exiting with queue size " ++ (show n)
-                       return ()
-         Just item -> do procItem lock c n item
-                         delHost hl (host item)
-                         procLoop lock c hl
+    do i <- popItem lock c hl
+       procLoop' lock c hl i
 
-procItem lock c n item =
+procLoop' lock c hl i =
+    do case i of
+         Nothing -> msg $ "Exiting"
+         Just item -> do procItem lock c item
+                         -- Popping the next item before releasing the current
+                         -- host is a simple form of being nice to remotes
+                         i <- popItem lock c hl
+                         delHost hl (host item)
+                         procLoop' lock c hl i
+    
+procItem lock c item =
     do t <- myThreadId
        msg $ show item
        let fspath = getFSPath item
