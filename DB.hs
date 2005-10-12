@@ -26,8 +26,9 @@ import System.IO
 import Data.List
 import Utils
 import Control.Exception
-import Control.Monad(when)
+import Control.Monad(when, unless)
 import Control.Concurrent.MVar(MVar)
+import System.Random
 
 initdb :: IO Connection
 
@@ -116,20 +117,22 @@ General algorithm: get a list of the top (15*numThreads) eligible hosts,
 then pick one. -}
 popItem :: Lock -> Connection -> MVar [String] -> IO (Maybe GAddress)
 popItem lock conn hosts = withLock lock $ handleSqlError $
-    do hostspart <- getHostClause hosts
-       let hostp = if (length hostspart > 0) then " AND " ++ hostspart else ""
-       --msg $ basequery ++ hostp ++ " LIMIT 1"
-       st <- query conn $ basequery ++ hostp ++ " LIMIT 1"
-       hasr1 <- fetch st
-       res <- if hasr1
-                  then return (True, st)
-                  else do closeStatement st
-                          sth2 <- query conn $ basequery ++ " LIMIT 1"
-                          r <- fetch sth2
-                          return (r, sth2)
-       let (hasr, sth) = res
-       if hasr
-          then do h <- getFieldValue sth "host"
+    do dbhosts <- getDBHosts
+       hl <- getHosts hosts
+       let candidatehosts =
+            case filter (\x -> not . elem x $ hl) dbhosts of
+              [] -> -- No remaining hosts after filter; just use the list
+                    -- we had.
+                    dbhosts
+              y -> y
+       if candidatehosts == []
+          then return Nothing
+          else do idx <- randomRIO (0, length candidatehosts - 1)
+                  let thishost = candidatehosts !! idx
+                  sth <- query conn $ basequery ++ " AND host = " ++ ce thishost
+                  hasr <- fetch sth
+                  unless hasr (fail "Internal error: inconsistent lack of results")
+                  h <- getFieldValue sth "host"
                   p <- getFieldValue sth "port"
                   pa <- getFieldValue sth "path"
                   dt <- getFieldValue sth "dtype"
@@ -139,10 +142,14 @@ popItem lock conn hosts = withLock lock $ handleSqlError $
                   updateItemNL conn ga VisitingNow
                   addHost hosts (host ga)
                   return (Just ga)
-          else do closeStatement sth
-                  return Nothing
     where basequery = "SELECT * FROM files WHERE state = " ++
                       (toSqlValue (show NotVisited))
+          getDBHosts = do st <- query conn $ "SELECT DISTINCT host FROM files " ++
+                              " WHERE state = " ++ (toSqlValue (show NotVisited)) ++
+                              " LIMIT " ++ show (11 * numThreads)
+                          candidates <- collectRows (\s -> getFieldValue s "host") st
+                          closeStatement st
+                          return candidates
 
 {- | Propogate SQL exceptions to IO monad. -}
 handleSqlError :: IO a -> IO a

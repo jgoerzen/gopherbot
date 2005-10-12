@@ -88,6 +88,9 @@ getHostClause mv =
     where func = concat . intersperse " AND " .
                  map (\h -> " host != " ++ (ce h))
 
+getHosts :: MVar [String] -> IO [String]
+getHosts mv = withMVar mv return
+
 ce :: String -> String
 ce i =
     '\'' : 
