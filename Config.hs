@@ -22,7 +22,7 @@ data GAddress = GAddress {host :: String, port :: Int, dtype :: Char,
                           path :: String}
     deriving (Eq, Show)
 
-data State = NotVisited | VisitingNow | Visited
+data State = NotVisited | VisitingNow | Visited | ErrorState
     deriving (Eq, Read, Show)
 
 startingAddresses :: [GAddress]

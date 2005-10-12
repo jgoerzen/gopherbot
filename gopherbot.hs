@@ -57,9 +57,12 @@ procItem c n item =
     do putStrLn $ "Processing #" ++ (show n) ++ ": " ++ (show item)
        let fspath = getFSPath item
        createDirectoryIfMissing True (fst . splitFileName $ fspath)
-       dlItem item fspath
-       when (dtype item == '1') (spider c item fspath)
-       updateItem c item Visited
+       catch (do dlItem item fspath
+                 when (dtype item == '1') (spider c item fspath)
+                 updateItem c item Visited
+             )
+          (\e -> do putStrLn $ "Error: " ++ (show e)
+                    updateItem c item ErrorState)
 
 spider c item fspath =
     do netreferences <- parseGMap fspath
