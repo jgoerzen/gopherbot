@@ -88,7 +88,8 @@ procItem lock c n item =
                  updateItem lock c item Visited
              )
           (\e -> do msg $ "Error: " ++ (show e)
-                    updateItem lock c item ErrorState)
+                    noteErrorOnHost lock c (host item)
+          )
 
 spider l c fspath =
     do netreferences <- parseGMap fspath

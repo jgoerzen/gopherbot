@@ -61,6 +61,12 @@ matchClause g =
     ++ ce (path g) ++ " AND dtype = "
     ++ toSqlValue [dtype g]
 
+noteErrorOnHost :: Lock -> Connection -> String -> IO ()
+noteErrorOnHost l c h = withLock l $ handleSqlError $
+     execute c $ "UPDATE FILES SET state = " ++
+                 ce (show ErrorState) ++
+                 " WHERE host = " ++ ce h
+
 updateItem :: Lock -> Connection -> GAddress -> State -> IO ()
 updateItem lock conn g s = withLock lock $ updateItemNL conn g s
 
