@@ -146,7 +146,7 @@ popItem lock conn hosts = withLock lock $ handleSqlError $
                       (toSqlValue (show NotVisited))
           getDBHosts = do st <- query conn $ "SELECT DISTINCT host FROM files " ++
                               " WHERE state = " ++ (toSqlValue (show NotVisited)) ++
-                              " LIMIT " ++ show (11 * numThreads)
+                              " LIMIT " ++ show (5 * numThreads)
                           candidates <- collectRows (\s -> getFieldValue s "host") st
                           closeStatement st
                           return candidates
