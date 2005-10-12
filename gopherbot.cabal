@@ -1,17 +1,15 @@
-Name: media-index
+Name: gopherbot
 Version: 0.1.0
 License: GPL
 Maintainer: John Goerzen <jgoerzen@complete.org>
 Stability: Alpha
 Copyright: Copyright (c) 2005 John Goerzen
-Build-Depends: base, network, unix, parsec, MissingH>=0.11.5, magic, hsql-sqlite3
+Build-Depends: base, network, unix, parsec, MissingH>=0.11.5, hsql-sqlite3
 
-Executable: media-index
+Executable: gopherbot
 Extensions: ExistentialQuantification, AllowOverlappingInstances,
     AllowUndecidableInstances, ForeignFunctionInterface
 GHC-Options: -O2
 CC-Options: -O3
-Main-Is: media-index.hs
-C-Sources: Scan/media_md5.c
-Extra-Libraries: mhash
+Main-Is: gopherbot.hs
 
