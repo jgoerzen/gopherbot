@@ -17,10 +17,15 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 -}
 
 module Config where
+import Data.List
 
 data GAddress = GAddress {host :: String, port :: Int, dtype :: Char,
                           path :: String}
-    deriving (Eq, Show)
+    deriving (Eq)
+
+instance Show GAddress where
+    show a = concat . intersperse ":" $
+             [host a, show (port a), [dtype a], path a]
 
 data State = NotVisited | VisitingNow | Visited | ErrorState
     deriving (Eq, Read, Show)

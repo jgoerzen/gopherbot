@@ -24,6 +24,8 @@ import Database.HSQL.SQLite3
 import Data.Char
 import System.IO
 import Data.List
+import Utils
+import Control.Exception
 
 initdb :: IO Connection
 
@@ -51,8 +53,11 @@ matchClause g =
     ++ ce (path g) ++ " AND dtype = "
     ++ toSqlValue [dtype g]
 
-updateItem :: Connection -> GAddress -> State -> IO ()
-updateItem conn g s = handleSqlError $ inTransaction conn (\c ->
+updateItem :: Lock -> Connection -> GAddress -> State -> IO ()
+updateItem lock conn g s = withLock lock $ updateItemNL conn g s
+
+updateItemNL :: Connection -> GAddress -> State -> IO ()
+updateItemNL conn g s = handleSqlError $ inTransaction conn (\c ->
     do execute c $ "DELETE FROM files WHERE " ++ matchClause g
        execute c $ "INSERT INTO files VALUES (" ++
            ce (host g) ++ ", " ++
@@ -60,17 +65,27 @@ updateItem conn g s = handleSqlError $ inTransaction conn (\c ->
            toSqlValue [dtype g] ++ ", " ++
            ce (path g) ++ ", " ++
            toSqlValue (show s) ++ ")"
-                      )
+                                           )
 
-queueItem :: Connection -> GAddress -> IO ()
-queueItem conn g = handleSqlError $
+
+queueItem :: Lock -> Connection -> GAddress -> IO ()
+queueItem lock conn g = withLock lock $ queueItemNL conn g
+
+queueItems :: Lock -> Connection -> [GAddress] -> IO ()
+queueItems lock conn g = 
+    withLock lock $ inTransaction conn (\c -> mapM_ (queueItemNL c) g)
+                                                             
+queueItemNL :: Connection -> GAddress -> IO ()
+queueItemNL conn g = handleSqlError $
     do sth <- query conn $ "SELECT COUNT(*) FROM FILES WHERE " ++ matchClause g
        h <- fetch sth
        (r::Int) <- getFieldValue sth "COUNT(*)"
        --putStrLn (show r)
        if r == 0
-          then updateItem conn g NotVisited
+          then updateItemNL conn g NotVisited
           else return ()
+
+
 
 numToProc :: Connection -> IO Integer
 numToProc conn = handleSqlError $
@@ -83,8 +98,8 @@ numToProc conn = handleSqlError $
 
 -- | Gets the next item to visit, if any, and sets the status
 -- to Visiting.  Returns Nothing if there is no next item.
-popItem :: Connection -> IO (Maybe GAddress)
-popItem conn =
+popItem :: Lock -> Connection -> IO (Maybe GAddress)
+popItem lock conn = withLock lock $ handleSqlError $
     do sth <- query conn $ "SELECT * FROM files WHERE state = " ++
                            (toSqlValue (show NotVisited))
                            ++ " LIMIT 1"
@@ -97,7 +112,7 @@ popItem conn =
                   let po = read p
                   let ga = GAddress {host = h, port = po, path = pa, dtype = head dt}
                   closeStatement sth
-                  updateItem conn ga VisitingNow
+                  updateItemNL conn ga VisitingNow
                   return (Just ga)
           else do closeStatement sth
                   return Nothing

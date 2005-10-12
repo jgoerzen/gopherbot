@@ -31,42 +31,44 @@ import DirParser
 
 main = niceSocketsDo $
     do setCurrentDirectory baseDir
+       l <- newLock
        c <- initdb
-       runScan c
+       runScan l c
        disconnect c
 
-runScan c =
+runScan l c =
     do n <- numToProc c
        putStrLn $ (show n) ++ " items to process"
        if n == 0
-          then do mapM_ (\g -> updateItem c g NotVisited) startingAddresses
+          then do mapM_ (\g -> updateItem l c g NotVisited) startingAddresses
           else return ()
-       n' <- numToProc c
-       procLoop c
+       procLoop l c
 
-procLoop c =
+procLoop lock c =
     do n <- numToProc c
-       i <- popItem c
+       i <- popItem lock c
        case i of
          Nothing -> do putStrLn $ "Exiting with queue size " ++ (show n)
                        return ()
-         Just item -> do procItem c n item
-                         procLoop c
+         Just item -> do procItem lock c n item
+                         procLoop lock c
 
-procItem c n item =
+procItem lock c n item =
     do putStrLn $ "Processing #" ++ (show n) ++ ": " ++ (show item)
        let fspath = getFSPath item
+       acquire lock             -- We don't want to stomp on each others mkdir
        createDirectoryIfMissing True (fst . splitFileName $ fspath)
+       release lock
        catch (do dlItem item fspath
-                 when (dtype item == '1') (spider c item fspath)
-                 updateItem c item Visited
+                 when (dtype item == '1') (spider lock c fspath)
+                 updateItem lock c item Visited
              )
           (\e -> do putStrLn $ "Error: " ++ (show e)
-                    updateItem c item ErrorState)
+                    updateItem lock c item ErrorState)
 
-spider c item fspath =
+spider l c fspath =
     do netreferences <- parseGMap fspath
        let refs = filter filt netreferences
-       mapM_ (\a -> queueItem c a) refs
+       queueItems l c refs
     where filt a = (dtype a) /= 'i' &&
                    not (host a `elem` excludeServers)

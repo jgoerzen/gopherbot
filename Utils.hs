@@ -21,12 +21,39 @@ module Utils where
 import Config
 import MissingH.Maybe
 import MissingH.Path
+import Control.Concurrent
+import Control.Exception
 
 getFSPath :: GAddress -> FilePath
 getFSPath ga =
-    forceMaybeMsg "getFSPath1" . secureAbsNormPath baseDir $ base
-    where base = "gopher/" ++ (host ga) ++ "/" ++ (show $ port ga) ++ "/" ++
+    forceMaybeMsg "getFSPath1" . secureAbsNormPath (baseDir ++ "/gopher") $ base
+    where base = (host ga) ++ "/" ++ (show $ port ga) ++ "/" ++
               (path ga) ++ case (dtype ga) of
                                            '1' -> "/.gophermap"
                                            _ -> ""
 
+type Lock = MVar ThreadId
+
+newLock :: IO Lock
+newLock = newEmptyMVar
+
+acquire :: Lock -> IO ()
+acquire l =
+    do t <- myThreadId
+       putMVar l t
+
+release :: Lock -> IO ()
+release l =
+    do t <- myThreadId
+       r <- tryTakeMVar l
+       case r of
+              Nothing -> do putStrLn $ "Warning: thread " ++ (show t) ++
+                                       " released lock which was unheld."
+              Just x -> if x == t
+                            then return ()
+                            else fail $ "Thread " ++ (show t) ++
+                                        " released lock held by thread " ++
+                                        (show x)
+
+withLock :: Lock -> (IO a) -> IO a
+withLock l action = bracket_ (acquire l) (release l) action
