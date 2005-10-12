@@ -87,7 +87,7 @@ procItem lock c n item =
                  when (dtype item == '1') (spider lock c fspath)
                  updateItem lock c item Visited
              )
-          (\e -> do msg $ "Error: " ++ (show e)
+          (\e -> do msg $ "Error on " ++ (show item) ++ ": " ++ (show e)
                     noteErrorOnHost lock c (host item)
           )
 
