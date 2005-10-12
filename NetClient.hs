@@ -23,8 +23,6 @@ import Network.Socket
 import System.IO
 import Config
 
--- FIXME: exit after .\r\n for most types.
-
 dlItem :: GAddress -> FilePath -> IO ()
 dlItem ga fp =
     do s <- connectTCP (host ga) (fromIntegral . port $ ga)
@@ -32,7 +30,20 @@ dlItem ga fp =
        hSetBinaryMode h True
        hPutStr h $ (path ga) ++ "\r\n"
        hFlush h
-       c <- hGetContents h
-       writeFile fp c
+       if (dtype ga) == '1'
+          then dlTillDot h fp
+          else do c <- hGetContents h
+                  writeFile fp c
        hClose h
        
+dlTillDot h fp =
+    do c <- hGetContents h
+       writeFile fp (process c)
+    where process :: String -> String
+          process = unlines . proc' . lines
+          proc' :: [String] -> [String]
+          proc' [] = []
+          proc' (".":_) = []
+          proc' (".\r":_) = []
+          proc' (".\r\n":_) = []
+          proc' (x:xs) = x : proc' xs
