@@ -43,22 +43,37 @@ initTables conn = handleSqlError $
                   execute conn "CREATE INDEX files2 ON files(host, port)"
           else return ()
 
+matchClause :: GAddress -> String
+matchClause g =
+    "host = " 
+    ++ toSqlValue (host g) ++ " AND port = " 
+    ++ toSqlValue (port g) ++ " AND path = "
+    ++ toSqlValue (path g) ++ " AND dtype = "
+    ++ toSqlValue [dtype g]
+
 updateItem :: Connection -> GAddress -> State -> IO ()
-updateItem conn g s = handleSqlError $
-    do execute conn $ "DELETE FROM files WHERE host = " 
-        ++ toSqlValue (host g) ++ " AND port = " 
-        ++ toSqlValue (port g) ++ " AND path = "
-        ++ toSqlValue (path g) ++ " AND dtype = "
-        ++ toSqlValue [dtype g]
-       execute conn $ "INSERT INTO files VALUES (" ++
+updateItem conn g s = handleSqlError $ inTransaction conn (\c ->
+    do execute c $ "DELETE FROM files WHERE " ++ matchClause g
+       execute c $ "INSERT INTO files VALUES (" ++
            toSqlValue (host g) ++ ", " ++
            toSqlValue (port g) ++ ", " ++
            toSqlValue [dtype g] ++ ", " ++
            toSqlValue (path g) ++ ", " ++
            toSqlValue (show s) ++ ")"
+                      )
+
+queueItem :: Connection -> GAddress -> IO ()
+queueItem conn g = handleSqlError $
+    do sth <- query conn $ "SELECT COUNT(*) FROM FILES WHERE " ++ matchClause g
+       h <- fetch sth
+       (r::Int) <- getFieldValue sth "COUNT(*)"
+       --putStrLn (show r)
+       if r == 0
+          then updateItem conn g NotVisited
+          else return ()
 
 numToProc :: Connection -> IO Integer
-numToProc conn =
+numToProc conn = handleSqlError $
     do sth <- query conn $ "SELECT COUNT(*) FROM FILES WHERE state = " ++
                            (toSqlValue (show NotVisited))
        h <- fetch sth

@@ -19,6 +19,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 module Main where
 
 import Config
+import Control.Monad(when)
 import System.Directory
 import DB
 import Database.HSQL
@@ -26,6 +27,7 @@ import Utils
 import MissingH.Path.FilePath
 import MissingH.Network
 import NetClient
+import DirParser
 
 main = niceSocketsDo $
     do setCurrentDirectory baseDir
@@ -55,4 +57,14 @@ procItem c n item =
     do putStrLn $ "Processing #" ++ (show n) ++ ": " ++ (show item)
        let fspath = getFSPath item
        createDirectoryIfMissing True (fst . splitFileName $ fspath)
+       updateItem c item VisitingNow
        dlItem item fspath
+       when (dtype item == '1') (spider c item fspath)
+       updateItem c item Visited
+
+spider c item fspath =
+    do netreferences <- parseGMap fspath
+       let refs = filter filt netreferences
+       mapM_ (\a -> queueItem c a) refs
+    where filt a = (dtype a) /= 'i' &&
+                   not (host a `elem` excludeServers)
