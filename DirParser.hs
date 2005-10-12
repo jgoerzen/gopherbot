@@ -20,12 +20,13 @@ module DirParser (parseGMap) where
 
 import Config
 import Text.ParserCombinators.Parsec
+import Utils
 
 parseGMap :: FilePath -> IO [GAddress]
 parseGMap fp =
     do r <- parseFromFile parserMain fp
        case r of
-              Left x -> do putStrLn $ "WARNING: " ++ (show x)
+              Left x -> do msg $ "WARNING: " ++ (show x)
                            return []
               Right x -> return x
 

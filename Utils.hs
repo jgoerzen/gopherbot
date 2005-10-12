@@ -23,6 +23,8 @@ import MissingH.Maybe
 import MissingH.Path
 import Control.Concurrent
 import Control.Exception
+import System.IO
+import Foreign.C.String
 
 getFSPath :: GAddress -> FilePath
 getFSPath ga =
@@ -47,8 +49,7 @@ release l =
     do t <- myThreadId
        r <- tryTakeMVar l
        case r of
-              Nothing -> do putStrLn $ "Warning: thread " ++ (show t) ++
-                                       " released lock which was unheld."
+              Nothing -> do msg $ "Warning: released lock which was unheld."
               Just x -> if x == t
                             then return ()
                             else fail $ "Thread " ++ (show t) ++
@@ -57,3 +58,9 @@ release l =
 
 withLock :: Lock -> (IO a) -> IO a
 withLock l action = bracket_ (acquire l) (release l) action
+
+msg :: String -> IO ()
+msg l =
+    do t <- myThreadId
+       let disp = (show t) ++ ": " ++ l ++ "\n"
+       withCStringLen disp (\(c, len) -> hPutBuf stdout c len >> hFlush stdout)

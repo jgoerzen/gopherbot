@@ -30,7 +30,7 @@ import Control.Exception
 initdb :: IO Connection
 
 initdb =
-    do putStrLn " *** Initializing database system..."
+    do msg " *** Initializing database system..."
        handleSqlError $
          do c <- connect ("state.sql3") ReadWriteMode
             initTables c
@@ -80,7 +80,7 @@ queueItemNL conn g = handleSqlError $
     do sth <- query conn $ "SELECT COUNT(*) FROM FILES WHERE " ++ matchClause g
        h <- fetch sth
        (r::Int) <- getFieldValue sth "COUNT(*)"
-       --putStrLn (show r)
+       --msg (show r)
        if r == 0
           then updateItemNL conn g NotVisited
           else return ()

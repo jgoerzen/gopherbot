@@ -35,3 +35,5 @@ startingAddresses =
     [GAddress {host="home.jumpjet.info",port= 70,dtype= '1',path= "1/Gopher_Jewels_2"}]
 excludeServers = ["gopher.quux.org", "quux.org"]
 baseDir = "/home/jgoerzen/tree/gopher-arch"
+
+numThreads = 5

@@ -20,6 +20,7 @@ module Main where
 
 import Config
 import Control.Monad(when)
+import Control.Exception(finally)
 import System.Directory
 import DB
 import Database.HSQL
@@ -39,24 +40,41 @@ main = niceSocketsDo $
 
 runScan l c =
     do n <- numToProc c
-       putStrLn $ (show n) ++ " items to process"
+       msg $ (show n) ++ " items to process"
        if n == 0
           then do mapM_ (\g -> updateItem l c g NotVisited) startingAddresses
           else return ()
-       procLoop l c
+       children <- mapM (\_ -> myForkIO (procLoop l c)) [1..numThreads]
+       waitForChildren children
+       
+
+myForkIO :: IO () -> IO (MVar ())
+myForkIO io =
+    do mvar <- newEmptyMVar
+       forkIO (action `finally` putMVar mvar ())
+       return mvar
+    where action = do t <- myThreadId
+                      msg "started."
+                      io
+
+waitForChildren :: [MVar ()] -> IO ()
+waitForChildren [] = return ()
+waitForChildren (c:xs) =
+    do takeMVar c
+       waitForChildren xs
 
 procLoop lock c =
     do n <- numToProc c
        i <- popItem lock c
        case i of
-         Nothing -> do putStrLn $ "Exiting with queue size " ++ (show n)
+         Nothing -> do msg $ "Exiting with queue size " ++ (show n)
                        return ()
          Just item -> do procItem lock c n item
                          procLoop lock c
 
 procItem lock c n item =
     do t <- myThreadId
-       putStrLn $ (show t) ++ " #" ++ (show n) ++ ": " ++ (show item)
+       msg $ " #" ++ (show n) ++ ": " ++ (show item)
        let fspath = getFSPath item
        acquire lock             -- We don't want to stomp on each others mkdir
        createDirectoryIfMissing True (fst . splitFileName $ fspath)
@@ -65,7 +83,7 @@ procItem lock c n item =
                  when (dtype item == '1') (spider lock c fspath)
                  updateItem lock c item Visited
              )
-          (\e -> do putStrLn $ "Error: " ++ (show e)
+          (\e -> do msg $ "Error: " ++ (show e)
                     updateItem lock c item ErrorState)
 
 spider l c fspath =
