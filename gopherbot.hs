@@ -31,6 +31,7 @@ import NetClient
 import DirParser
 import Control.Concurrent
 import Data.List
+import Control.Exception(bracket_)
 
 main = niceSocketsDo $
     do setCurrentDirectory baseDir
@@ -80,9 +81,11 @@ procItem lock c n item =
     do t <- myThreadId
        msg $ show item
        let fspath = getFSPath item
-       acquire lock             -- We don't want to stomp on each others mkdir
-       createDirectoryIfMissing True (fst . splitFileName $ fspath)
-       release lock
+       catch (bracket_ (acquire lock) (release lock) (createDirectoryIfMissing True (fst . splitFileName $ fspath)))
+             (\e -> do msg $ "Single-Item Error on " ++ (show item) ++ ": " 
+                           ++ (show e)
+                       updateItem lock c item ErrorState
+             )
        catch (do dlItem item fspath
                  when (dtype item == '1') (spider lock c fspath)
                  updateItem lock c item Visited
