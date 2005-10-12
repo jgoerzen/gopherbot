@@ -72,6 +72,7 @@ popItem :: Connection -> IO (Maybe GAddress)
 popItem conn =
     do sth <- query conn $ "SELECT * FROM files WHERE state = " ++
                            (toSqlValue (show NotVisited))
+                           ++ " LIMIT 1"
        h <- fetch sth
        if h
           then do h <- getFieldValue sth "host"

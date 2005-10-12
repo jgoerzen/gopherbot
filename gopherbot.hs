@@ -22,8 +22,12 @@ import Config
 import System.Directory
 import DB
 import Database.HSQL
+import Utils
+import MissingH.Path.FilePath
+import MissingH.Network
+import NetClient
 
-main =
+main = niceSocketsDo $
     do setCurrentDirectory baseDir
        c <- initdb
        runScan c
@@ -40,4 +44,15 @@ runScan c =
 
 procLoop c =
     do n <- numToProc c
-       putStrLn $ (show n) ++ " items to process"
+       i <- popItem c
+       case i of
+         Nothing -> do putStrLn $ "Exiting with queue size " ++ (show n)
+                       return ()
+         Just item -> do procItem c n item
+                         procLoop c
+
+procItem c n item =
+    do putStrLn $ "Processing #" ++ (show n) ++ ": " ++ (show item)
+       let fspath = getFSPath item
+       createDirectoryIfMissing True (fst . splitFileName $ fspath)
+       dlItem item fspath
