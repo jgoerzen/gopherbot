@@ -143,12 +143,6 @@ popItem lock conn hosts = withLock lock $ handleSqlError $
                   return Nothing
     where basequery = "SELECT * FROM files WHERE state = " ++
                       (toSqlValue (show NotVisited))
-          getDBHosts = do st <- query conn $ "SELECT DISTINCT host FROM files " ++
-                              " WHERE state = " ++ (toSqlValue (show NotVisited)) ++
-                              " LIMIT " ++ show (11 * numThreads)
-                          candidates <- collectRows (\s -> getFieldValue s "host") st
-                          closeStatement st
-                          return candidates
 
 {- | Propogate SQL exceptions to IO monad. -}
 handleSqlError :: IO a -> IO a
