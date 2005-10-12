@@ -57,7 +57,6 @@ procItem c n item =
     do putStrLn $ "Processing #" ++ (show n) ++ ": " ++ (show item)
        let fspath = getFSPath item
        createDirectoryIfMissing True (fst . splitFileName $ fspath)
-       updateItem c item VisitingNow
        dlItem item fspath
        when (dtype item == '1') (spider c item fspath)
        updateItem c item Visited
