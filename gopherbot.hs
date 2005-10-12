@@ -45,8 +45,9 @@ runScan l c =
        if n == 0
           then do mapM_ (\g -> updateItem l c g NotVisited) startingAddresses
           else return ()
-       children <- mapM (\_ -> myForkIO (procLoop l c)) [1..numThreads]
-       stats <- forkIO (statsthread l c)
+       hl <- newHostList
+       children <- mapM (\_ -> myForkIO (procLoop l c hl)) [1..numThreads]
+       stats <- forkIO (statsthread l c hl)
        waitForChildren children
        
 
@@ -65,14 +66,15 @@ waitForChildren (c:xs) =
     do takeMVar c
        waitForChildren xs
 
-procLoop lock c =
+procLoop lock c hl =
     do n <- numToProc c
-       i <- popItem lock c
+       i <- popItem lock c hl
        case i of
          Nothing -> do msg $ "Exiting with queue size " ++ (show n)
                        return ()
          Just item -> do procItem lock c n item
-                         procLoop lock c
+                         delHost hl (host item)
+                         procLoop lock c hl
 
 procItem lock c n item =
     do t <- myThreadId
@@ -95,15 +97,15 @@ spider l c fspath =
     where filt a = (dtype a) /= 'i' &&
                    not (host a `elem` excludeServers)
 
-statsthread :: Lock -> Connection -> IO ()
-statsthread l c =
+statsthread :: Lock -> Connection -> MVar [String] -> IO ()
+statsthread l c hl =
     do total <- getCount c "1 = 1"
        let totaltext = show total ++ " total"
        statetxts <- mapM (procstate total) states
        let disp = concat . intersperse ", " $ totaltext : statetxts
        msg disp
        threadDelay (30 * 1000000)
-       statsthread l c
+       statsthread l c hl
     where states = [NotVisited, VisitingNow, Visited, ErrorState]
           procstate total s =
               do r <- getCount c ("state = " ++ toSqlValue (show s))

@@ -27,6 +27,7 @@ import Data.List
 import Utils
 import Control.Exception
 import Control.Monad(when)
+import Control.Concurrent.MVar(MVar)
 
 initdb :: IO Connection
 
@@ -102,13 +103,21 @@ numToProc conn = handleSqlError $
 
 -- | Gets the next item to visit, if any, and sets the status
 -- to Visiting.  Returns Nothing if there is no next item.
-popItem :: Lock -> Connection -> IO (Maybe GAddress)
-popItem lock conn = withLock lock $ handleSqlError $
-    do sth <- query conn $ "SELECT * FROM files WHERE state = " ++
-                           (toSqlValue (show NotVisited))
-                           ++ " LIMIT 1"
-       h <- fetch sth
-       if h
+popItem :: Lock -> Connection -> MVar [String] -> IO (Maybe GAddress)
+popItem lock conn hosts = withLock lock $ handleSqlError $
+    do hostspart <- getHostClause hosts
+       let hostp = if (length hostspart > 0) then " AND " ++ hostspart else ""
+       --msg $ basequery ++ hostp ++ " LIMIT 1"
+       st <- query conn $ basequery ++ hostp ++ " LIMIT 1"
+       hasr1 <- fetch st
+       res <- if hasr1
+                  then return (True, st)
+                  else do closeStatement st
+                          sth2 <- query conn $ basequery ++ " LIMIT 1"
+                          r <- fetch sth2
+                          return (r, sth2)
+       let (hasr, sth) = res
+       if hasr
           then do h <- getFieldValue sth "host"
                   p <- getFieldValue sth "port"
                   pa <- getFieldValue sth "path"
@@ -117,9 +126,12 @@ popItem lock conn = withLock lock $ handleSqlError $
                   let ga = GAddress {host = h, port = po, path = pa, dtype = head dt}
                   closeStatement sth
                   updateItemNL conn ga VisitingNow
+                  addHost hosts (host ga)
                   return (Just ga)
           else do closeStatement sth
                   return Nothing
+    where basequery = "SELECT * FROM files WHERE state = " ++
+                      (toSqlValue (show NotVisited))
 
 {- | Propogate SQL exceptions to IO monad. -}
 handleSqlError :: IO a -> IO a
@@ -127,8 +139,3 @@ handleSqlError action =
     catchSql action handler
     where handler e = fail ("SQL error: " ++ show e)
 
-ce :: String -> String
-ce i =
-    '\'' : 
-         (concat $ map (\c -> if c == '\'' then "''" else [c]) i)
-    ++ "'"
