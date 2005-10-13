@@ -124,8 +124,8 @@ to Visiting.  Returns Nothing if there is no next item.
 
 General algorithm: get a list of the top (15*numThreads) eligible hosts,
 then pick one. -}
-popItem :: Lock -> MVar (Maybe GAddress) -> Connection -> MVar [String] -> IO (Maybe GAddress)
-popItem lock gasupply conn hosts = withLock lock $ handleSqlError $
+popItem :: Lock -> MVar (Maybe GAddress) -> Connection -> IO (Maybe GAddress)
+popItem lock gasupply conn = withLock lock $ handleSqlError $
     do newga <- takeMVar gasupply
        case newga of
                Nothing -> return Nothing

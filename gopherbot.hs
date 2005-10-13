@@ -49,9 +49,8 @@ runScan gasupply l c =
        msg $ (show n) ++ " items to process"
        when (n == 0)            -- Nothing to do: prime the db
           (mapM_ (\g -> updateItem l c g NotVisited) startingAddresses)
-       hl <- newHostList       
-       children <- mapM (\_ -> myForkIO (procLoop l gasupply c hl)) [1..numThreads]
-       stats <- forkIO (statsthread l c hl)
+       children <- mapM (\_ -> myForkIO (procLoop l gasupply c)) [1..numThreads]
+       stats <- forkIO (statsthread l c)
        supplier <- forkIO (nextFinder gasupply c)
        waitForChildren children
        
@@ -71,19 +70,18 @@ waitForChildren (c:xs) =
     do takeMVar c
        waitForChildren xs
 
-procLoop lock gasupply c hl =
-    do i <- popItem lock gasupply c hl
-       procLoop' lock gasupply c hl i
+procLoop lock gasupply c =
+    do i <- popItem lock gasupply c
+       procLoop' lock gasupply c i
 
-procLoop' lock gasupply c hl i =
+procLoop' lock gasupply c i =
     do case i of
          Nothing -> msg $ "Exiting"
          Just item -> do procItem lock c item
                          -- Popping the next item before releasing the current
                          -- host is a simple form of being nice to remotes
-                         i <- popItem lock gasupply c hl
-                         --delHost hl (host item)
-                         procLoop' lock gasupply c hl i
+                         i <- popItem lock gasupply c
+                         procLoop' lock gasupply c i
 data RobotStatus = RobotsOK     -- ^ Proceed
                  | RobotsDeny   -- ^ Stop
                  | RobotsError  -- ^ Error occured; abort.
@@ -144,15 +142,15 @@ spider l c fspath =
     where filt a = (not ((dtype a) `elem` ['i', '3', '8', '7', '2'])) &&
                    not (host a `elem` excludeServers)
 
-statsthread :: Lock -> Connection -> MVar [String] -> IO ()
-statsthread l c hl =
+statsthread :: Lock -> Connection -> IO ()
+statsthread l c =
     do total <- getCount c "1 = 1"
        let totaltext = show total ++ " total"
        statetxts <- mapM (procstate total) states
        let disp = concat . intersperse ", " $ totaltext : statetxts
        msg disp
        threadDelay (60 * 1000000)
-       statsthread l c hl
+       statsthread l c
     where states = [NotVisited, VisitingNow, Visited, ErrorState]
           procstate total s =
               do r <- getCount c ("state = " ++ toSqlValue (show s))

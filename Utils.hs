@@ -67,30 +67,6 @@ msg l =
        let disp = (show t) ++ ": " ++ l ++ "\n"
        withCStringLen disp (\(c, len) -> hPutBuf stdout c len >> hFlush stdout)
 
-newHostList :: IO (MVar [String])
-newHostList = newMVar []
-
-addHost :: MVar [String] -> String -> IO ()
-addHost mv hostname =
-    modifyMVar_ mv (\l -> return (hostname : l))
-
-delHost :: MVar [String] -> String -> IO ()
-delHost mv hostname =
-    modifyMVar_ mv (return . filter (/= hostname))
-
-isHostOK :: MVar [String] -> String -> IO Bool
-isHostOK mv hostname =
-    withMVar mv (return . not . elem hostname)
-
-getHostClause :: MVar [String] -> IO String
-getHostClause mv =
-    withMVar mv (return . func)
-    where func = concat . intersperse " AND " .
-                 map (\h -> " host != " ++ (ce h))
-
-getHosts :: MVar [String] -> IO [String]
-getHosts mv = withMVar mv return
-
 ce :: String -> String
 ce i =
     '\'' : 
