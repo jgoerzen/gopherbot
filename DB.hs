@@ -33,8 +33,8 @@ import Data.HashTable as HT
 import qualified Data.Map as Map
 import MissingH.Maybe
 
+{- | Initialize the database system. -}
 initdb :: IO Connection
-
 initdb =
     do msg " *** Initializing database system..."
        handleSqlError $

@@ -82,10 +82,15 @@ waitForChildren (c:xs) =
        msg $ " *********** Thread died: " ++ (show t)
        waitForChildren xs
 
+{- | Main entry point for each worker thread.  We just pop the first item,
+then call procLoop'. -}
 procLoop lock gasupply c =
     do i <- popItem lock gasupply c
        procLoop' lock gasupply c i
 
+{- | Main worker loop.  We receive an item and process it.  If it's
+Nothing, there is nothing else to do, so the thread shuts down. 
+Otherwise, call procItem, pop the next, and then call itself. -}
 procLoop' lock gasupply c i =
     do case i of
          Nothing -> msg $ "Exiting"
@@ -94,37 +99,69 @@ procLoop' lock gasupply c i =
                          -- host is a simple form of being nice to remotes
                          i <- popItem lock gasupply c
                          procLoop' lock gasupply c i
+
+{- | What happened when we checked the robots.txt file? -}
 data RobotStatus = RobotsOK     -- ^ Proceed
-                 | RobotsDeny   -- ^ Stop
+                 | RobotsDeny   -- ^ Do not download this file
                  | RobotsError  -- ^ Error occured; abort.
 
-    
+{- | Given a 'GAddress' (corresponding to a single item),
+check to see if it's OK to download according to robots.txt.
+-}
 checkRobots :: Lock -> Connection -> GAddress -> IO RobotStatus
 checkRobots lock c ga =
     do let fspath = getFSPath garobots
        dfe <- doesFileExist fspath
-       unless (dfe) (procItem lock c garobots)
-       dfe2 <- doesFileExist fspath
+       unless (dfe) (procItem lock c garobots) -- Download file if needed
+       dfe2 <- doesFileExist fspath -- Do we have it yet?
        if dfe2
-          then do r <- parseRobots fspath
+          then -- Yes.  Parse it, and see what happened.
+               do r <- parseRobots fspath
                   return $ case isURLAllowed r "gopherbot" (path ga) of
                                 True -> RobotsOK
                                 False -> RobotsDeny
-          else return RobotsError
+          else return RobotsError -- No.  TCP error occured.
           
     where garobots = ga {path = "robots.txt", dtype = '0'}
 
+{- | Run an IO action, but only if it's OK according to robots.txt. -}
+procIfRobotsOK :: Lock -> Connection -> GAddress -> IO () -> IO ()
+procIfRobotsOK lock c item action =
+              do r <- if (path item /= "robots.txt")
+                          then checkRobots lock c item
+                          else -- Don't try to check if robots.txt itself is ok
+                               return RobotsOK
+                 case r of
+                    RobotsOK -> action -- OK per robots.txt; run it.
+                    RobotsDeny -> do msg $ "Excluded by robots.txt: " ++ 
+                                             (show item)
+                                     updateItem lock c item ErrorState
+                    RobotsError -> do msg $ "Problem getting robots.txt: " ++ 
+                                          host item
+                                      noteErrorOnHost lock c (host item)
+
 -- TODO: better crash handling on robots.txt
 
+{- | OK, we have an item.  If it's OK according to robots.txt, download
+and process it. -}
 procItem lock c item = procIfRobotsOK lock c item $
-    do t <- myThreadId
-       msg $ show item
+    do msg $ show item          -- Show what we're up to
        let fspath = getFSPath item
-       catch (bracket_ (acquire lock) (release lock) (createDirectoryIfMissing True (fst . splitFileName $ fspath)))
-             (\e -> do msg $ "Single-Item Error on " ++ (show item) ++ ": " 
+
+       -- Create the directory for the file to go in, if necessary.
+       catch (bracket_ (acquire lock) 
+                       (release lock) 
+                       (createDirectoryIfMissing True 
+                        (fst . splitFileName $ fspath)))
+             (\e -> -- If we got an exception here, note an error for this item
+                    do msg $ "Single-Item Error on " ++ (show item) ++ ": " 
                            ++ (show e)
                        updateItem lock c item ErrorState
              )
+
+       -- Now, download it.  If it's a menu (item type 1), check it for links
+       -- (spider it).  Error here means a TCP problem, so mark every
+       -- item on this host as having the error.
        catch (do dlItem item fspath
                  when (dtype item == '1') (spider lock c fspath)
                  updateItem lock c item Visited
@@ -133,20 +170,9 @@ procItem lock c item = procIfRobotsOK lock c item $
                     noteErrorOnHost lock c (host item)
           )
                   
-
-procIfRobotsOK :: Lock -> Connection -> GAddress -> IO () -> IO ()
-procIfRobotsOK lock c item action =
-              do r <- if (path item /= "robots.txt")
-                          then checkRobots lock c item
-                          else return RobotsOK -- Don't try to re-process robots.txt itself
-                 case r of
-                    RobotsOK -> action
-                    RobotsDeny -> do msg $ "Excluded by robots.txt: " ++ (show item)
-                                     updateItem lock c item ErrorState
-                    RobotsError -> do msg $ "Blocking host due to connection problems with robots.txt: " ++ host item
-                                      noteErrorOnHost lock c (host item)
-
-
+{- | This function is called by procItem whenever it downloads a
+menu.  This function calles the parser, extracts items, and calles
+DB.queueItems to handle them.  (Insert into DB if new) -}
 spider l c fspath =
     do netreferences <- parseGMap fspath
        let refs = filter filt netreferences
@@ -154,6 +180,7 @@ spider l c fspath =
     where filt a = (not ((dtype a) `elem` ['i', '3', '8', '7', '2'])) &&
                    not (host a `elem` excludeServers)
 
+{- | This thread prints a periodic status update. -}
 statsthread :: Lock -> Connection -> IO ()
 statsthread l c =
     do total <- getCount c "1 = 1"
