@@ -177,7 +177,10 @@ nextFinder mv conn =
           addToMap m ga =
               case Map.lookup (host ga) m of
                                       Nothing -> Map.insert (host ga) [ga] m
-                                      Just x -> Map.insert (host ga) (ga:x) m
+                                      Just x -> 
+                                          if length x < 100
+                                             then Map.insert (host ga) (ga:x) m
+                                             else m
           yieldram recent leftover = 
               case find (\h -> not (h `elem` recent)) (Map.keys leftover) of
                    Nothing -> Nothing
