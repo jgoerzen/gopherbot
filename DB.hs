@@ -30,6 +30,7 @@ import Control.Monad(when, replicateM_)
 import Control.Concurrent.MVar
 import Data.HashTable as HT
 import qualified Data.Map as Map
+import MissingH.Maybe
 
 initdb :: IO Connection
 
@@ -139,42 +140,56 @@ nextFinder mv conn =
        sth <- query conn $ "SELECT * FROM files WHERE state = " ++
                          (toSqlValue (show NotVisited))
                          -- ++ " LIMIT " ++ show (10 * numThreads)
-       (recent, leftover, count) <- forEachRow yieldit sth ([], Map.empty::Map.Map String [GAddress], 0::Integer)
-       yielded <- yieldram recent leftover 0 
-       msg $ " *** Processed " ++ (show (yielded + count)) ++ " selectors on last run."
+       count <- yielder sth [] Map.empty 0
+       msg $ " *** Processed " ++ (show count) ++ " selectors on last run."
        if count == 0      -- Didn't find anything, so we send the shutdown message (Nothing) all over the place.
           then replicateM_ (10 * (fromIntegral numThreads)) (putMVar mv Nothing)
           else nextFinder mv conn
-    where yieldit sth (recent, leftover, count) =
-              do h <- getFieldValue sth "host"
-                 p <- getFieldValue sth "port"
-                 pa <- getFieldValue sth "path"
-                 dt <- getFieldValue sth "dtype"
-                 let po = read p
-                 let ga = GAddress {host = h, port = po, path = pa, dtype = head dt}
-                 if h `elem` recent -- We saw it recently, pass on it for now.
-                    then return (recent, addToMap leftover ga, count)
-                    else do let newlist = take memorysize (h : recent)
-                            putMVar mv (Just ga)
-                            return (newlist, leftover, count + 1)
+          
+    where yielder :: Statement -> [String] -> Map.Map String [GAddress] -> Integer -> IO Integer
+          yielder sth recent leftover count =
+              case yieldram recent leftover of
+                   Just (r', l', x) -> do putMVar mv (Just x)
+                                          yielder sth r' l' (count + 1)
+                   Nothing -> do r <- fetchdb sth recent leftover
+                                 case r of
+                                   Just (r', l') -> yielder sth r' l' 
+                                                    (count + 1)
+                                   Nothing -> return count
+          fetchdb sth recent leftover =
+              do r <- fetch sth
+                 if r 
+                    then do 
+                         h <- getFieldValue sth "host"
+                         p <- getFieldValue sth "port"
+                         pa <- getFieldValue sth "path"
+                         dt <- getFieldValue sth "dtype"
+                         let po = read p
+                         let ga = GAddress {host = h, port = po, 
+                                            path = pa, dtype = head dt}
+                         if h `elem` recent -- We saw it recently, pass on it for now.
+                            then fetchdb sth recent (addToMap leftover ga)
+                            else do let newlist = take memorysize (h : recent)
+                                    putMVar mv (Just ga)
+                                    return $ Just (newlist, leftover)
+                    else return Nothing
           memorysize = (fromIntegral (2 + numThreads))::Int
           addToMap m ga =
               case Map.lookup (host ga) m of
                                       Nothing -> Map.insert (host ga) [ga] m
                                       Just x -> Map.insert (host ga) (ga:x) m
-          yieldram :: [String] -> Map.Map String [GAddress] -> Integer -> IO Integer
-          yieldram recent leftover count = 
+          yieldram recent leftover = 
               case find (\h -> not (h `elem` recent)) (Map.keys leftover) of
-                   Nothing -> return count
-                   Just h -> do hl <- Map.lookup h leftover
-                                let thisga = head hl
-                                let remainder = tail hl
-                                let nextrecent = take memorysize (h : recent)
-                                let nextlo = if remainder == [] 
-                                               then Map.delete h leftover
-                                               else Map.insert h remainder leftover
-                                putMVar mv (Just thisga)
-                                yieldram nextrecent nextlo (count + 1)
+                   Nothing -> Nothing
+                   Just h -> let hl = forceMaybeMsg "yieldram" $
+                                      Map.lookup h leftover
+                                 thisga = head hl
+                                 remainder = tail hl
+                                 nextrecent = take memorysize (h : recent)
+                                 nextlo = if remainder == [] 
+                                            then Map.delete h leftover
+                                            else Map.insert h remainder leftover
+                                 in Just (nextrecent, nextlo, thisga)
 
               
               
