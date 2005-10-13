@@ -34,21 +34,22 @@ import Data.List
 import Control.Exception(bracket_)
 import RobotsTxt
 
-main = niceSocketsDo $
-    do setCurrentDirectory baseDir
+{- | Main entry point for the program. -}
+main = niceSocketsDo $          -- Prepare things for sockets
+    do setCurrentDirectory baseDir -- chdir to the working dir
        l <- newLock             -- Global lock for db updates
        c <- initdb              -- Initialize the database and get a conn
        gasupply <- newEmptyMVar -- Global MVar for the supply of selectors
        runScan gasupply l c     -- main scanner
        disconnect c             -- shut down
 
+{- | Set up all the threads and get them going. -}
 runScan gasupply l c =
     do n <- numToProc c
        msg $ (show n) ++ " items to process"
-       if n == 0
-          then do mapM_ (\g -> updateItem l c g NotVisited) startingAddresses
-          else return ()
-       hl <- newHostList
+       when (n == 0)            -- Nothing to do: prime the db
+          (mapM_ (\g -> updateItem l c g NotVisited) startingAddresses)
+       hl <- newHostList       
        children <- mapM (\_ -> myForkIO (procLoop l gasupply c hl)) [1..numThreads]
        stats <- forkIO (statsthread l c hl)
        supplier <- forkIO (nextFinder gasupply c)
