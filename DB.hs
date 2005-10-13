@@ -74,6 +74,10 @@ updateItem lock conn g s = withLock lock $ updateItemNL conn g s
 
 updateItemNL :: Connection -> GAddress -> State -> IO ()
 updateItemNL conn g s = handleSqlError $ inTransaction conn (\c ->
+                                     updateItemNLNT c g s)
+
+updateItemNLNT :: Connection -> GAddress -> State -> IO ()
+updateItemNLNT c g s =
     do execute c $ "DELETE FROM files WHERE " ++ matchClause g
        execute c $ "INSERT INTO files VALUES (" ++
            ce (host g) ++ ", " ++
@@ -81,7 +85,7 @@ updateItemNL conn g s = handleSqlError $ inTransaction conn (\c ->
            toSqlValue [dtype g] ++ ", " ++
            ce (path g) ++ ", " ++
            toSqlValue (show s) ++ ")"
-                                           )
+
 
 getCount :: Connection -> String -> IO Integer
 getCount conn whereclause =
@@ -92,17 +96,19 @@ getCount conn whereclause =
        return r
 
 queueItem :: Lock -> Connection -> GAddress -> IO ()
-queueItem lock conn g = withLock lock $ queueItemNL conn g
+queueItem lock conn g = withLock lock $ 
+                        inTransaction conn (\c -> queueItemNL conn g)
 
 queueItems :: Lock -> Connection -> [GAddress] -> IO ()
-queueItems lock conn g = 
-    mapM_ (queueItem lock conn) g
+queueItems lock conn g = withLock lock $ inTransaction conn (\c ->
+    mapM_ (queueItemNL c) g
+                                                            )
                                                              
 queueItemNL :: Connection -> GAddress -> IO ()
 queueItemNL conn g = handleSqlError $
     do r <- getCount conn (matchClause g)
        if r == 0
-          then updateItemNL conn g NotVisited
+          then updateItemNLNT conn g NotVisited
           else return ()
 
 numToProc :: Connection -> IO Integer
