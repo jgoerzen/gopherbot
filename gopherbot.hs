@@ -49,25 +49,37 @@ runScan gasupply l c =
        msg $ (show n) ++ " items to process"
        when (n == 0)            -- Nothing to do: prime the db
           (mapM_ (\g -> updateItem l c g NotVisited) startingAddresses)
-       children <- mapM (\_ -> myForkIO (procLoop l gasupply c)) [1..numThreads]
+       {- Fork off the childthreads.  Each one goes into a loop
+          of waiting for new items to process and processing them. -}
+       children <- mapM 
+                   (\_ -> myForkIO (procLoop l gasupply c)) [1..numThreads]
+       -- This is the thread that displays status updates every so often
        stats <- forkIO (statsthread l c)
+       -- And this is the thread that supplies items to process
        supplier <- forkIO (nextFinder gasupply c)
+       -- When the main thread exits, so does the program, so
+       -- we wait for all children before exiting.
        waitForChildren children
        
-
-myForkIO :: IO () -> IO (MVar ())
+{- | A simple wrapper around forkIO to notify the main thread when each
+individual thread dies. -}
+myForkIO :: IO () -> IO (MVar ThreadId)
 myForkIO io =
     do mvar <- newEmptyMVar
-       forkIO (action `finally` putMVar mvar ())
+       t <- myThreadId
+       forkIO (action `finally` putMVar mvar t)
        return mvar
-    where action = do t <- myThreadId
-                      msg "started."
+    where action = do msg "started."
                       io
 
-waitForChildren :: [MVar ()] -> IO ()
-waitForChildren [] = return ()
+{- | Wait for child threads to die. 
+
+This should only happen when there is nothing else to spider. -}
+waitForChildren :: [MVar ThreadId] -> IO ()
+waitForChildren [] = msg $ "All children died; exiting."
 waitForChildren (c:xs) =
-    do takeMVar c
+    do t <- takeMVar c
+       msg $ " *********** Thread died: " ++ (show t)
        waitForChildren xs
 
 procLoop lock gasupply c =
