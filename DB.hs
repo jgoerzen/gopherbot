@@ -30,7 +30,6 @@ import Control.Monad(when, replicateM_)
 import Control.Concurrent.MVar
 import Control.Concurrent
 import Data.HashTable as HT
-import qualified Data.Map as Map
 import MissingH.Maybe
 
 {- | Initialize the database system. -}
@@ -141,7 +140,7 @@ nextFinder mv conn =
        sth <- query conn $ "SELECT * FROM files WHERE state = " ++
                          (toSqlValue (show NotVisited))
                          -- ++ " LIMIT " ++ show (10 * numThreads)
-       (count, skipped) <- yielder sth [] Map.empty 0 0
+       (count, skipped) <- yielder sth [] 0 0
        closeStatement sth
        msg $ " *** Processed " ++ (show count) ++ ", skipped " ++
                (show skipped) ++ " selectors on last run."
@@ -155,18 +154,13 @@ nextFinder mv conn =
           then replicateM_ (fromIntegral numThreads) (putMVar mv Nothing)
           else nextFinder mv conn
           
-    where yielder :: Statement -> [String] -> Map.Map String [GAddress] -> Integer -> Integer -> IO (Integer, Integer)
-          yielder sth recent leftover count skipped =
-              case yieldram recent leftover of
-                   Just (r', l', x) -> do putMVar mv (Just x)
-                                          yielder sth r' l' (count + 1) skipped
-                   Nothing -> do r <- fetchdb sth recent leftover 0
-                                 case r of
-                                   Right (r', l', s) -> yielder sth r' l' 
-                                                        (count + 1) 
-                                                        (skipped + s)
-                                   Left x -> return (count, skipped + x)
-          fetchdb sth recent leftover skipped =
+    where yielder :: Statement -> [String] -> Integer -> Integer -> IO (Integer, Integer)
+          yielder sth recent count skipped =
+              do r <- fetchdb sth recent 0
+                 case r of
+                   Right (r', s) -> yielder sth r' (count + 1) (skipped + s)
+                   Left x -> return (count, skipped + x)
+          fetchdb sth recent skipped =
               do r <- fetch sth
                  if r 
                     then do 
@@ -178,36 +172,13 @@ nextFinder mv conn =
                          let ga = GAddress {host = h, port = po, 
                                             path = pa, dtype = head dt}
                          if h `elem` recent -- We saw it recently, pass on it for now.
-                            then fetchdb sth recent (addToMap leftover ga)
-                                 (skipped + 1)
+                            then fetchdb sth recent (skipped + 1)
                             else do let newlist = take memorysize (h : recent)
                                     putMVar mv (Just ga)
-                                    return $ Right (newlist, leftover, skipped)
+                                    --performGC
+                                    return $ Right (newlist, skipped)
                     else return $ Left skipped
-          memorysize = (fromIntegral (2 + numThreads))::Int
-          addToMap m ga =
-              case Map.lookup (host ga) m of
-                                      Nothing -> Map.insert (host ga) [ga] m
-                                      Just x -> 
-                                          if length x < 25
-                                             then Map.insert (host ga) (ga:x) m
-                                             else m
-          yieldram recent leftover = 
-              case find (\h -> not (h `elem` recent)) (Map.keys leftover) of
-                   Nothing -> Nothing
-                   Just h -> let hl = forceMaybeMsg "yieldram" $
-                                      Map.lookup h leftover
-                                 thisga = head hl
-                                 remainder = tail hl
-                                 nextrecent = take memorysize (h : recent)
-                                 nextlo = if remainder == [] 
-                                            then Map.delete h leftover
-                                            else Map.insert h remainder leftover
-                                 in Just (nextrecent, nextlo, thisga)
-
-              
-              
-
+          memorysize = (fromIntegral (numThreads - 1))::Int
 
 {- | Propogate SQL exceptions to IO monad. -}
 handleSqlError :: IO a -> IO a
