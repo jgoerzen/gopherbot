@@ -124,8 +124,7 @@ procIfRobotsOK lock c item action =
                           else return True
                  if r
                     then action
-                    else do msg $ "Excluded by robots.txt: " ++ (show item)
-                            fail "foo"
+                    else do fail $ "Excluded by robots.txt: " ++ (show item)
 
 
 spider l c fspath =
