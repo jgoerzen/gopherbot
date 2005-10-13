@@ -140,7 +140,7 @@ nextFinder mv conn =
        sth <- query conn $ "SELECT * FROM files WHERE state = " ++
                          (toSqlValue (show NotVisited))
                          -- ++ " LIMIT " ++ show (10 * numThreads)
-       (count, skipped) <- yielder sth [] 0 0
+       (count, skipped) <- fetchdb sth [] 0 0
        closeStatement sth
        msg $ " *** Processed " ++ (show count) ++ ", skipped " ++
                (show skipped) ++ " selectors on last run."
@@ -154,30 +154,25 @@ nextFinder mv conn =
           then replicateM_ (fromIntegral numThreads) (putMVar mv Nothing)
           else nextFinder mv conn
           
-    where yielder :: Statement -> [String] -> Integer -> Integer -> IO (Integer, Integer)
-          yielder sth recent count skipped =
-              do r <- fetchdb sth recent 0
-                 case r of
-                   Right (r', s) -> yielder sth r' (count + 1) (skipped + s)
-                   Left x -> return (count, skipped + x)
-          fetchdb sth recent skipped =
+    where fetchdb sth recent count skipped =
               do r <- fetch sth
                  if r 
                     then do 
                          h <- getFieldValue sth "host"
-                         p <- getFieldValue sth "port"
-                         pa <- getFieldValue sth "path"
-                         dt <- getFieldValue sth "dtype"
-                         let po = read p
-                         let ga = GAddress {host = h, port = po, 
-                                            path = pa, dtype = head dt}
                          if h `elem` recent -- We saw it recently, pass on it for now.
-                            then fetchdb sth recent (skipped + 1)
-                            else do let newlist = take memorysize (h : recent)
+                            then fetchdb sth recent count (skipped + 1)
+                            else do p <- getFieldValue sth "port"
+                                    pa <- getFieldValue sth "path"
+                                    dt <- getFieldValue sth "dtype"
+                                    let po = read p
+                                    let ga = GAddress {host = h, port = po, 
+                                                       path = pa, 
+                                                       dtype = head dt}
+                                    let newlist = take memorysize (h : recent)
                                     putMVar mv (Just ga)
                                     --performGC
-                                    return $ Right (newlist, skipped)
-                    else return $ Left skipped
+                                    fetchdb sth recent (count + 1) skipped
+                    else return (count, skipped)
           memorysize = (fromIntegral (numThreads - 1))::Int
 
 {- | Propogate SQL exceptions to IO monad. -}
