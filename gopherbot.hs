@@ -19,7 +19,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 module Main where
 
 import Config
-import Control.Monad(when)
+import Control.Monad(when, unless)
 import Control.Exception(finally)
 import System.Directory
 import DB
@@ -32,6 +32,7 @@ import DirParser
 import Control.Concurrent
 import Data.List
 import Control.Exception(bracket_)
+import RobotsTxt
 
 main = niceSocketsDo $
     do setCurrentDirectory baseDir
@@ -81,7 +82,17 @@ procLoop' lock c hl i =
                          delHost hl (host item)
                          procLoop' lock c hl i
     
-procItem lock c item =
+checkRobots :: Lock -> Connection -> GAddress -> IO Bool
+checkRobots lock c ga =
+    do let fspath = getFSPath garobots
+       dfe <- doesFileExist fspath
+       unless (dfe) (procItem lock c garobots)
+       r <- parseRobots fspath
+       return $ isURLAllowed r "gopherbot" (path ga)
+          
+    where garobots = ga {path = "robots.txt", dtype = '0'}
+
+procItem lock c item = procIfRobotsOK lock c item $
     do t <- myThreadId
        msg $ show item
        let fspath = getFSPath item
@@ -97,6 +108,18 @@ procItem lock c item =
           (\e -> do msg $ "Error on " ++ (show item) ++ ": " ++ (show e)
                     noteErrorOnHost lock c (host item)
           )
+                  
+
+procIfRobotsOK :: Lock -> Connection -> GAddress -> IO () -> IO ()
+procIfRobotsOK lock c item action =
+              do r <- if (path item /= "robots.txt")
+                          then checkRobots lock c item
+                          else return True
+                 if r
+                    then action
+                    else do msg $ "Excluded by robots.txt: " ++ (show item)
+                            fail "foo"
+
 
 spider l c fspath =
     do netreferences <- parseGMap fspath
