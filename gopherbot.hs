@@ -87,10 +87,15 @@ checkRobots lock c ga =
     do let fspath = getFSPath garobots
        dfe <- doesFileExist fspath
        unless (dfe) (procItem lock c garobots)
-       r <- parseRobots fspath
-       return $ isURLAllowed r "gopherbot" (path ga)
+       dfe2 <- doesFileExist fspath
+       if dfe2
+          then do r <- parseRobots fspath
+                  return $ isURLAllowed r "gopherbot" (path ga)
+          else return True
           
     where garobots = ga {path = "robots.txt", dtype = '0'}
+
+-- TODO: better crash handling on robots.txt
 
 procItem lock c item = procIfRobotsOK lock c item $
     do t <- myThreadId

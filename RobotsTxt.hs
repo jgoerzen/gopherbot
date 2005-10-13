@@ -21,6 +21,7 @@ module RobotsTxt  where
 import Text.ParserCombinators.Parsec
 import Data.Maybe
 import MissingH.Str
+import Network.URI
 
 ws = many (oneOf " \v\f\t")
 
@@ -73,8 +74,7 @@ parseRobots :: FilePath -> IO [([String], [String])]
 parseRobots fp =
     do r <- parseFromFile clauses fp
        case r of
-              Left x -> do putStrLn $ "WARNING: " ++ (show x)
-                           return []
+              Left x -> return []
               Right x -> return x
 
 {- | Given a parsed file, a user agent, and a URL, determine whether
@@ -84,5 +84,7 @@ isURLAllowed parsed agent url =
     let agentsfiltered = filter (\i -> "*" `elem` (fst i) ||
                                agent `elem` (fst i)) parsed
         disallowparts = concat . map snd $ agentsfiltered
+        escapedurl = escapeURIString (\c -> not $ elem c " ?\n\r\0&") url
         in
-        not (any (\i -> startswith i url) disallowparts)
+        not (any (\i -> startswith i url || startswith i escapedurl) disallowparts)
+        
