@@ -51,7 +51,7 @@ kv = do ws
         toeol
         return (rstrip v)
 
-line key = (try (defline key)) >>= return . Just ))
+line key = (try (defline key))
            <|> (kv >> fail "foo")
            <|> (emptyline >> line key)
 
@@ -61,23 +61,28 @@ disallow = try (line "Disallow")
 clauses = 
     do agents <- many useragent
        disallow <- many disallow
-       let a = catMaybes agents
-       if a == []
+       if agents == []
           then fail "Found no User-agent"
           else do next <- ((try clauses) <|> (return []))
-                  return ((a, catMaybes disallow) : next)
+                  return ((agents, disallow) : next)
 
-file = many clauses
-
-{-
 {- | Parse a robots.txt file and return a list corresponding to a clause.
 Each tuple in the list contains a list of user agents that the rule applies to,
 plus a list of Disallow records. -}
 parseRobots :: FilePath -> IO [([String], [String])]
 parseRobots fp =
-    do r <- parseFromFile file fp
+    do r <- parseFromFile clauses fp
        case r of
               Left x -> do putStrLn $ "WARNING: " ++ (show x)
                            return []
               Right x -> return x
--}
+
+{- | Given a parsed file, a user agent, and a URL, determine whether
+it's OK to process that URL. -}
+isURLAllowed :: [([String], [String])] -> String -> String -> Bool
+isURLAllowed parsed agent url =
+    let agentsfiltered = filter (\i -> "*" `elem` (fst i) ||
+                               agent `elem` (fst i)) parsed
+        disallowparts = concat . map snd $ agentsfiltered
+        in
+        not (any (\i -> startswith i url) disallowparts)
