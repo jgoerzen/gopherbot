@@ -18,6 +18,8 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 module RobotsTxt  where
 
+-- FIXME: should only consider first user-agent match?
+
 import Text.ParserCombinators.Parsec
 import Data.Maybe
 import MissingH.Str

@@ -83,8 +83,12 @@ procLoop' lock gasupply c hl i =
                          i <- popItem lock gasupply c hl
                          --delHost hl (host item)
                          procLoop' lock gasupply c hl i
+data RobotStatus = RobotsOK     -- ^ Proceed
+                 | RobotsDeny   -- ^ Stop
+                 | RobotsError  -- ^ Error occured; abort.
+
     
-checkRobots :: Lock -> Connection -> GAddress -> IO Bool
+checkRobots :: Lock -> Connection -> GAddress -> IO RobotStatus
 checkRobots lock c ga =
     do let fspath = getFSPath garobots
        dfe <- doesFileExist fspath
@@ -92,8 +96,10 @@ checkRobots lock c ga =
        dfe2 <- doesFileExist fspath
        if dfe2
           then do r <- parseRobots fspath
-                  return $ isURLAllowed r "gopherbot" (path ga)
-          else return True
+                  return $ case isURLAllowed r "gopherbot" (path ga) of
+                                True -> RobotsOK
+                                False -> RobotsDeny
+          else return RobotsError
           
     where garobots = ga {path = "robots.txt", dtype = '0'}
 
@@ -121,10 +127,13 @@ procIfRobotsOK :: Lock -> Connection -> GAddress -> IO () -> IO ()
 procIfRobotsOK lock c item action =
               do r <- if (path item /= "robots.txt")
                           then checkRobots lock c item
-                          else return True
-                 if r
-                    then action
-                    else do fail $ "Excluded by robots.txt: " ++ (show item)
+                          else return RobotsOK -- Don't try to re-process robots.txt itself
+                 case r of
+                    RobotsOK -> action
+                    RobotsDeny -> do msg $ "Excluded by robots.txt: " ++ (show item)
+                                     updateItem lock c item ErrorState
+                    RobotsError -> do msg $ "Blocking host due to connection problems with robots.txt: " ++ host item
+                                      noteErrorOnHost lock c (host item)
 
 
 spider l c fspath =
