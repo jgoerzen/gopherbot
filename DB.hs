@@ -178,7 +178,7 @@ nextFinder mv conn =
               case Map.lookup (host ga) m of
                                       Nothing -> Map.insert (host ga) [ga] m
                                       Just x -> 
-                                          if length x < 100
+                                          if length x < 25
                                              then Map.insert (host ga) (ga:x) m
                                              else m
           yieldram recent leftover = 
