@@ -155,7 +155,7 @@ nextFinder mv conn =
                             let ga = GAddress {host = h, port = po, path = pa, dtype = head dt}
                             putMVar mv (Just ga)
                             return (newlist, count + 1)
-          memorysize = (fromIntegral (3 * numThreads))::Int
+          memorysize = (fromIntegral (2 * numThreads))::Int
 
 
 {- | Propogate SQL exceptions to IO monad. -}

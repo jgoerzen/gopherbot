@@ -38,6 +38,7 @@ extratoeol = do many (noneOf "\r\n")
                 (eof >> return "") <|> eol
                 
 field = many (noneOf "\r\n\t")
+reqField = many1 (noneOf "\r\n\t")
 
 gmapline = 
     do dtype <- anyChar
@@ -45,9 +46,9 @@ gmapline =
        tab
        path <- field
        tab
-       host <- field
+       host <- reqField
        tab
-       port <- field
+       port <- many1 (digit)
        extratoeol
        return GAddress {host = map toLower host, port = read port, dtype = dtype,
                         path = path}

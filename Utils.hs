@@ -30,7 +30,7 @@ import Data.List
 
 getFSPath :: GAddress -> FilePath
 getFSPath ga =
-    forceMaybeMsg "getFSPath1" . secureAbsNormPath (baseDir ++ "/gopher") $ base
+    forceMaybeMsg ("getFSPath1 " ++ show ga) . secureAbsNormPath (baseDir ++ "/gopher") $ base
     where base = (host ga) ++ "/" ++ (show $ port ga) ++ "/" ++
               (path ga) ++ case (dtype ga) of
                                            '1' -> "/.gophermap"
