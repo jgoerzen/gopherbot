@@ -138,24 +138,24 @@ nextFinder mv conn =
        sth <- query conn $ "SELECT * FROM files WHERE state = " ++
                          (toSqlValue (show NotVisited))
                          -- ++ " LIMIT " ++ show (10 * numThreads)
-       ht <- new (==) hashString
-       forEachRow' (yieldit ht) sth
-       htlist <- HT.toList ht
-       if htlist == []      -- Didn't find anything!
+       (_, count) <- forEachRow yieldit sth ([], 0::Integer)
+       msg $ " *** Processed " ++ (show count) ++ " selectors on last run."
+       if count == 0      -- Didn't find anything, so we send the shutdown message (Nothing) all over the place.
           then replicateM_ (10 * (fromIntegral numThreads)) (putMVar mv Nothing)
           else nextFinder mv conn
-    where yieldit ht sth =
+    where yieldit sth (recent, count) =
               do h <- getFieldValue sth "host"
-                 l <- HT.lookup ht h
-                 case l of
-                        Nothing -> do HT.insert ht h (0::Int)
-                                      p <- getFieldValue sth "port"
-                                      pa <- getFieldValue sth "path"
-                                      dt <- getFieldValue sth "dtype"
-                                      let po = read p
-                                      let ga = GAddress {host = h, port = po, path = pa, dtype = head dt}
-                                      putMVar mv (Just ga)
-                        Just _ -> return ()
+                 if h `elem` recent -- We saw it recently, pass on it for now.
+                    then return (recent, count)
+                    else do let newlist = take memorysize (h : recent)
+                            p <- getFieldValue sth "port"
+                            pa <- getFieldValue sth "path"
+                            dt <- getFieldValue sth "dtype"
+                            let po = read p
+                            let ga = GAddress {host = h, port = po, path = pa, dtype = head dt}
+                            putMVar mv (Just ga)
+                            return (newlist, count + 1)
+          memorysize = (fromIntegral (3 * numThreads))::Int
 
 
 {- | Propogate SQL exceptions to IO monad. -}
