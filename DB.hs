@@ -26,8 +26,9 @@ import System.IO
 import Data.List
 import Utils
 import Control.Exception
-import Control.Monad(when)
-import Control.Concurrent.MVar(MVar)
+import Control.Monad(when, replicateM_)
+import Control.Concurrent.MVar
+import Data.HashTable as HT
 
 initdb :: IO Connection
 
@@ -120,35 +121,42 @@ to Visiting.  Returns Nothing if there is no next item.
 
 General algorithm: get a list of the top (15*numThreads) eligible hosts,
 then pick one. -}
-popItem :: Lock -> Connection -> MVar [String] -> IO (Maybe GAddress)
-popItem lock conn hosts = withLock lock $ handleSqlError $
-    do hostspart <- getHostClause hosts
-       let hostp = if (length hostspart > 0) then " AND " ++ hostspart else ""
-       --msg $ basequery ++ hostp ++ " LIMIT 1"
-       st <- query conn $ basequery ++ hostp ++ " LIMIT 1"
-       hasr1 <- fetch st
-       res <- if hasr1
-                  then return (True, st)
-                  else do closeStatement st
-                          sth2 <- query conn $ basequery ++ " LIMIT 1"
-                          r <- fetch sth2
-                          return (r, sth2)
-       let (hasr, sth) = res
-       if hasr
-          then do h <- getFieldValue sth "host"
-                  p <- getFieldValue sth "port"
-                  pa <- getFieldValue sth "path"
-                  dt <- getFieldValue sth "dtype"
-                  let po = read p
-                  let ga = GAddress {host = h, port = po, path = pa, dtype = head dt}
-                  closeStatement sth
-                  updateItemNL conn ga VisitingNow
-                  addHost hosts (host ga)
-                  return (Just ga)
-          else do closeStatement sth
-                  return Nothing
-    where basequery = "SELECT * FROM files WHERE state = " ++
-                      (toSqlValue (show NotVisited))
+popItem :: Lock -> MVar (Maybe GAddress) -> Connection -> MVar [String] -> IO (Maybe GAddress)
+popItem lock gasupply conn hosts = withLock lock $ handleSqlError $
+    do newga <- takeMVar gasupply
+       case newga of
+               Nothing -> return Nothing
+               Just ga -> do updateItemNL conn ga VisitingNow
+                             --addHost hosts (host ga)
+                             return (Just ga)
+
+{- | Send new GAddress objects to the specified mvar. 
+Run forever. -}
+nextFinder :: MVar (Maybe GAddress) -> Connection -> IO ()
+nextFinder mv conn =
+    do msg " *** Yielding more hosts..."
+       sth <- query conn $ "SELECT * FROM files WHERE state = " ++
+                         (toSqlValue (show NotVisited))
+                         ++ " LIMIT " ++ show (10 * numThreads)
+       ht <- new (==) hashString
+       forEachRow' (yieldit ht) sth
+       htlist <- HT.toList ht
+       if htlist == []      -- Didn't find anything!
+          then replicateM_ (10 * (fromIntegral numThreads)) (putMVar mv Nothing)
+          else nextFinder mv conn
+    where yieldit ht sth =
+              do h <- getFieldValue sth "host"
+                 l <- HT.lookup ht h
+                 case l of
+                        Nothing -> do HT.insert ht h (0::Int)
+                                      p <- getFieldValue sth "port"
+                                      pa <- getFieldValue sth "path"
+                                      dt <- getFieldValue sth "dtype"
+                                      let po = read p
+                                      let ga = GAddress {host = h, port = po, path = pa, dtype = head dt}
+                                      putMVar mv (Just ga)
+                        Just _ -> return ()
+
 
 {- | Propogate SQL exceptions to IO monad. -}
 handleSqlError :: IO a -> IO a

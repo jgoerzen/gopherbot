@@ -38,18 +38,20 @@ main = niceSocketsDo $
     do setCurrentDirectory baseDir
        l <- newLock
        c <- initdb
-       runScan l c
+       gasupply <- newEmptyMVar
+       runScan gasupply l c
        disconnect c
 
-runScan l c =
+runScan gasupply l c =
     do n <- numToProc c
        msg $ (show n) ++ " items to process"
        if n == 0
           then do mapM_ (\g -> updateItem l c g NotVisited) startingAddresses
           else return ()
        hl <- newHostList
-       children <- mapM (\_ -> myForkIO (procLoop l c hl)) [1..numThreads]
+       children <- mapM (\_ -> myForkIO (procLoop l gasupply c hl)) [1..numThreads]
        stats <- forkIO (statsthread l c hl)
+       supplier <- forkIO (nextFinder gasupply c)
        waitForChildren children
        
 
@@ -68,19 +70,19 @@ waitForChildren (c:xs) =
     do takeMVar c
        waitForChildren xs
 
-procLoop lock c hl =
-    do i <- popItem lock c hl
-       procLoop' lock c hl i
+procLoop lock gasupply c hl =
+    do i <- popItem lock gasupply c hl
+       procLoop' lock gasupply c hl i
 
-procLoop' lock c hl i =
+procLoop' lock gasupply c hl i =
     do case i of
          Nothing -> msg $ "Exiting"
          Just item -> do procItem lock c item
                          -- Popping the next item before releasing the current
                          -- host is a simple form of being nice to remotes
-                         i <- popItem lock c hl
-                         delHost hl (host item)
-                         procLoop' lock c hl i
+                         i <- popItem lock gasupply c hl
+                         --delHost hl (host item)
+                         procLoop' lock gasupply c hl i
     
 checkRobots :: Lock -> Connection -> GAddress -> IO Bool
 checkRobots lock c ga =
