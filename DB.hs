@@ -28,6 +28,7 @@ import Utils
 import Control.Exception
 import Control.Monad(when, replicateM_)
 import Control.Concurrent.MVar
+import Control.Concurrent
 import Data.HashTable as HT
 import qualified Data.Map as Map
 import MissingH.Maybe
@@ -140,23 +141,30 @@ nextFinder mv conn =
        sth <- query conn $ "SELECT * FROM files WHERE state = " ++
                          (toSqlValue (show NotVisited))
                          -- ++ " LIMIT " ++ show (10 * numThreads)
-       count <- yielder sth [] Map.empty 0
+       (count, skipped) <- yielder sth [] Map.empty 0 0
        msg $ " *** Processed " ++ (show count) ++ " selectors on last run."
-       if count == 0      -- Didn't find anything, so we send the shutdown message (Nothing) all over the place.
+       when (count == 0 && skipped /= 0)
+            -- Didn't return anything but we have records that were skipped.
+            -- Wait a bit before we call ourselves.
+            (threadDelay (30 * 1000000))
+       if count == 0 && skipped == 0
+          -- Didn't find anything, so we send the shutdown message (Nothing)
+          -- all over the place.
           then replicateM_ (10 * (fromIntegral numThreads)) (putMVar mv Nothing)
           else nextFinder mv conn
           
-    where yielder :: Statement -> [String] -> Map.Map String [GAddress] -> Integer -> IO Integer
-          yielder sth recent leftover count =
+    where yielder :: Statement -> [String] -> Map.Map String [GAddress] -> Integer -> Integer -> IO (Integer, Integer)
+          yielder sth recent leftover count skipped =
               case yieldram recent leftover of
                    Just (r', l', x) -> do putMVar mv (Just x)
-                                          yielder sth r' l' (count + 1)
-                   Nothing -> do r <- fetchdb sth recent leftover
+                                          yielder sth r' l' (count + 1) skipped
+                   Nothing -> do r <- fetchdb sth recent leftover 0
                                  case r of
-                                   Just (r', l') -> yielder sth r' l' 
-                                                    (count + 1)
-                                   Nothing -> return count
-          fetchdb sth recent leftover =
+                                   Right (r', l', s) -> yielder sth r' l' 
+                                                        (count + 1) 
+                                                        (skipped + s)
+                                   Left x -> return (count, skipped + x)
+          fetchdb sth recent leftover skipped =
               do r <- fetch sth
                  if r 
                     then do 
@@ -169,10 +177,11 @@ nextFinder mv conn =
                                             path = pa, dtype = head dt}
                          if h `elem` recent -- We saw it recently, pass on it for now.
                             then fetchdb sth recent (addToMap leftover ga)
+                                 (skipped + 1)
                             else do let newlist = take memorysize (h : recent)
                                     putMVar mv (Just ga)
-                                    return $ Just (newlist, leftover)
-                    else return Nothing
+                                    return $ Right (newlist, leftover, skipped)
+                    else return $ Left skipped
           memorysize = (fromIntegral (2 + numThreads))::Int
           addToMap m ga =
               case Map.lookup (host ga) m of
