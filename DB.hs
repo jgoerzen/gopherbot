@@ -142,7 +142,9 @@ nextFinder mv conn =
                          (toSqlValue (show NotVisited))
                          -- ++ " LIMIT " ++ show (10 * numThreads)
        (count, skipped) <- yielder sth [] Map.empty 0 0
-       msg $ " *** Processed " ++ (show count) ++ " selectors on last run."
+       closeStatement sth
+       msg $ " *** Processed " ++ (show count) ++ ", skipped " ++
+               (show skipped) ++ " selectors on last run."
        when (count == 0 && skipped /= 0)
             -- Didn't return anything but we have records that were skipped.
             -- Wait a bit before we call ourselves.
@@ -150,7 +152,7 @@ nextFinder mv conn =
        if count == 0 && skipped == 0
           -- Didn't find anything, so we send the shutdown message (Nothing)
           -- all over the place.
-          then replicateM_ (10 * (fromIntegral numThreads)) (putMVar mv Nothing)
+          then replicateM_ (fromIntegral numThreads) (putMVar mv Nothing)
           else nextFinder mv conn
           
     where yielder :: Statement -> [String] -> Map.Map String [GAddress] -> Integer -> Integer -> IO (Integer, Integer)
