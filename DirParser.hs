@@ -21,6 +21,7 @@ module DirParser (parseGMap) where
 import Config
 import Text.ParserCombinators.Parsec
 import Utils
+import Data.Char
 
 parseGMap :: FilePath -> IO [GAddress]
 parseGMap fp =
@@ -48,5 +49,5 @@ gmapline =
        tab
        port <- field
        extratoeol
-       return GAddress {host = host, port = read port, dtype = dtype,
+       return GAddress {host = map toLower host, port = read port, dtype = dtype,
                         path = path}
