@@ -36,11 +36,11 @@ import RobotsTxt
 
 main = niceSocketsDo $
     do setCurrentDirectory baseDir
-       l <- newLock
-       c <- initdb
-       gasupply <- newEmptyMVar
-       runScan gasupply l c
-       disconnect c
+       l <- newLock             -- Global lock for db updates
+       c <- initdb              -- Initialize the database and get a conn
+       gasupply <- newEmptyMVar -- Global MVar for the supply of selectors
+       runScan gasupply l c     -- main scanner
+       disconnect c             -- shut down
 
 runScan gasupply l c =
     do n <- numToProc c
@@ -150,7 +150,7 @@ statsthread l c hl =
        statetxts <- mapM (procstate total) states
        let disp = concat . intersperse ", " $ totaltext : statetxts
        msg disp
-       threadDelay (30 * 1000000)
+       threadDelay (60 * 1000000)
        statsthread l c hl
     where states = [NotVisited, VisitingNow, Visited, ErrorState]
           procstate total s =
