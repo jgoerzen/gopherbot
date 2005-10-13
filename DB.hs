@@ -137,7 +137,7 @@ nextFinder mv conn =
     do msg " *** Yielding more hosts..."
        sth <- query conn $ "SELECT * FROM files WHERE state = " ++
                          (toSqlValue (show NotVisited))
-                         ++ " LIMIT " ++ show (10 * numThreads)
+                         -- ++ " LIMIT " ++ show (10 * numThreads)
        ht <- new (==) hashString
        forEachRow' (yieldit ht) sth
        htlist <- HT.toList ht
