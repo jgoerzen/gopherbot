@@ -67,7 +67,7 @@ recvBlocks s action state =
     do buf <- cto "Timeout on recv" (recv s 8192)
        if buf == []
           then return state
-          else do nestate <- action state buf
+          else do newstate <- action state buf
                   recvBlocks s action newstate
 
 -- FIXME: this is slow and a RAM hog.

@@ -31,6 +31,7 @@ import Control.Concurrent.MVar
 import Control.Concurrent
 import Data.HashTable as HT
 import MissingH.Maybe
+import System.Time
 
 {- | Initialize the database system. -}
 initdb :: IO Connection
@@ -54,7 +55,7 @@ initTables conn = handleSqlError $
     do t <- tables conn
        let t2 = map (map toUpper) t
        if not (elem "FILES" t2)
-          then do execute conn "CREATE TABLE files (host TEXT, port INTEGER, dtype TEXT, path TEXT, state TEXT)"
+          then do execute conn "CREATE TABLE files (host TEXT, port INTEGER, dtype TEXT, path TEXT, state TEXT, timestamp INTEGER, log TEXT)"
                   execute conn "CREATE UNIQUE INDEX files1 ON files(host, port, dtype, path, state)"
                   --execute conn "CREATE INDEX files2 ON files(host, port)"
                   execute conn "CREATE INDEX filesstate ON files (state)"
@@ -70,29 +71,35 @@ matchClause g =
     ++ ce (path g) ++ " AND dtype = "
     ++ toSqlValue [dtype g]
 
-noteErrorOnHost :: Lock -> Connection -> String -> IO ()
-noteErrorOnHost l c h = withLock l $ handleSqlError $
-     execute c $ "UPDATE FILES SET state = " ++
+noteErrorOnHost :: Lock -> Connection -> String -> String -> IO ()
+noteErrorOnHost l c h log = withLock l $ handleSqlError $
+     do t <- now
+        execute c $ "UPDATE FILES SET state = " ++
                  ce (show ErrorState) ++
+                 ", log = " ++ ce log ++ ", timestamp = " ++ t ++
                  " WHERE host = " ++ ce h
 
-updateItem :: Lock -> Connection -> GAddress -> State -> IO ()
-updateItem lock conn g s = withLock lock $ updateItemNL conn g s
+updateItem :: Lock -> Connection -> GAddress -> State -> String -> IO ()
+updateItem lock conn g s log = withLock lock $ updateItemNL conn g s log
 
-updateItemNL :: Connection -> GAddress -> State -> IO ()
-updateItemNL conn g s = handleSqlError $ inTransaction conn (\c ->
-                                     updateItemNLNT c g s)
+updateItemNL :: Connection -> GAddress -> State -> String -> IO ()
+updateItemNL conn g s log = handleSqlError $ inTransaction conn (\c ->
+                                             updateItemNLNT c g s log)
 
-updateItemNLNT :: Connection -> GAddress -> State -> IO ()
-updateItemNLNT c g s =
+updateItemNLNT :: Connection -> GAddress -> State -> String -> IO ()
+updateItemNLNT c g s log =
     do execute c $ "DELETE FROM files WHERE " ++ matchClause g
+       t <- now
        execute c $ "INSERT INTO files VALUES (" ++
            ce (host g) ++ ", " ++
            toSqlValue (port g) ++ ", " ++
            toSqlValue [dtype g] ++ ", " ++
            ce (path g) ++ ", " ++
-           toSqlValue (show s) ++ ")"
-
+           toSqlValue (show s) ++ ", " ++
+           t ++ ", " ++ ce log ++ ")"
+                   
+now = do c <- getClockTime
+         return $ toSqlValue ((\(TOD x _) -> x) c)
 
 getCount :: Connection -> String -> IO Integer
 getCount conn whereclause =
@@ -115,7 +122,7 @@ queueItemNL :: Connection -> GAddress -> IO ()
 queueItemNL conn g = handleSqlError $
     do r <- getCount conn (matchClause g)
        if r == 0
-          then updateItemNLNT conn g NotVisited
+          then updateItemNLNT conn g NotVisited ""
           else return ()
 
 numToProc :: Connection -> IO Integer
@@ -132,7 +139,7 @@ popItem lock gasupply conn = withLock lock $ handleSqlError $
     do newga <- takeMVar gasupply
        case newga of
                Nothing -> return Nothing
-               Just ga -> do updateItemNL conn ga VisitingNow
+               Just ga -> do updateItemNL conn ga VisitingNow ""
                              --addHost hosts (host ga)
                              return (Just ga)
 

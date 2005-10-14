@@ -48,7 +48,7 @@ runScan gasupply l c =
     do n <- numToProc c
        msg $ (show n) ++ " items to process"
        when (n == 0)            -- Nothing to do: prime the db
-          (mapM_ (\g -> updateItem l c g NotVisited) startingAddresses)
+          (mapM_ (\g -> updateItem l c g NotVisited "") startingAddresses)
        {- Fork off the childthreads.  Each one goes into a loop
           of waiting for new items to process and processing them. -}
        children <- mapM 
@@ -135,10 +135,13 @@ procIfRobotsOK lock c item action =
                     RobotsOK -> action -- OK per robots.txt; run it.
                     RobotsDeny -> do msg $ "Excluded by robots.txt: " ++ 
                                              (show item)
-                                     updateItem lock c item Excluded
+                                     updateItem lock c item Excluded ""
                     RobotsError -> do msg $ "Problem getting robots.txt: " ++ 
                                           host item
-                                      noteErrorOnHost lock c (host item)
+                                      -- Next line not necessary; procItem
+                                      -- on robots.txt will have done it
+                                      -- already.
+                                      --noteErrorOnHost lock c (host item) (show msg)
 
 -- TODO: better crash handling on robots.txt
 
@@ -156,7 +159,7 @@ procItem lock c item = procIfRobotsOK lock c item $
              (\e -> -- If we got an exception here, note an error for this item
                     do msg $ "Single-Item Error on " ++ (show item) ++ ": " 
                            ++ (show e)
-                       updateItem lock c item ErrorState
+                       updateItem lock c item ErrorState (show e)
              )
 
        -- Now, download it.  If it's a menu (item type 1), check it for links
@@ -164,10 +167,10 @@ procItem lock c item = procIfRobotsOK lock c item $
        -- item on this host as having the error.
        catch (do dlItem item fspath
                  when (dtype item == '1') (spider lock c fspath)
-                 updateItem lock c item Visited
+                 updateItem lock c item Visited ""
              )
           (\e -> do msg $ "Error on " ++ (show item) ++ ": " ++ (show e)
-                    noteErrorOnHost lock c (host item)
+                    noteErrorOnHost lock c (host item) (show e)
           )
                   
 {- | This function is called by procItem whenever it downloads a
