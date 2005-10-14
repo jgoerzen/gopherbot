@@ -70,7 +70,7 @@ sendAll s buf =
 
 recvBlocks :: Socket -> (a -> String -> IO a) -> a -> IO a
 recvBlocks s action state =
-    do buf <- cto "Timeout on recv" (recv s 8192)
+    do buf <- cto "Timeout on recv" (dorecv s 8192)
        if buf == []
           then return state
           else do newstate <- action state buf
