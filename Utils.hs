@@ -43,13 +43,11 @@ newLock = newEmptyMVar
 acquire :: Lock -> IO ()
 acquire l =
     do t <- myThreadId
-       msg "acquiring lock"
        putMVar l t
 
 release :: Lock -> IO ()
 release l =
     do t <- myThreadId
-       msg "releasing lock"
        r <- tryTakeMVar l
        case r of
               Nothing -> do msg $ "Warning: released lock which was unheld."

@@ -24,7 +24,6 @@ import System.IO
 import Types
 import Foreign.C.Types
 import MissingH.Threads.Timeout
-import Utils(msg)
 import System.IO.Error
 
 timeo = 45 * 1000000
@@ -37,14 +36,10 @@ cto msg action =
 
 dlItem :: GAddress -> FilePath -> IO ()
 dlItem ga fp =
-    do msg $ "1: " ++ fp
-       s <- cto "Timeout on connect" $ 
+    do s <- cto "Timeout on connect" $ 
             connectTCP (host ga) (fromIntegral . port $ ga)
-       msg "2"
        cto "Timeout on send" $ sendAll s $ (path ga) ++ "\r\n"
-       msg "3"
        cto "Timeout on shotdown" $ shutdown s ShutdownSend
-       msg "4"
        if (dtype ga) == '1'
           then dlTillDot s fp
           else dlTo s fp
