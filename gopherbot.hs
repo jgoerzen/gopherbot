@@ -135,7 +135,7 @@ procIfRobotsOK lock c item action =
                     RobotsOK -> action -- OK per robots.txt; run it.
                     RobotsDeny -> do msg $ "Excluded by robots.txt: " ++ 
                                              (show item)
-                                     updateItem lock c item ErrorState
+                                     updateItem lock c item Excluded
                     RobotsError -> do msg $ "Problem getting robots.txt: " ++ 
                                           host item
                                       noteErrorOnHost lock c (host item)

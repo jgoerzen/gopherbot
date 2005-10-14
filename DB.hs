@@ -59,6 +59,7 @@ initTables conn = handleSqlError $
                   --execute conn "CREATE INDEX files2 ON files(host, port)"
                   execute conn "CREATE INDEX filesstate ON files (state)"
                   execute conn "CREATE INDEX files3 ON files(host)"
+                  execute conn "CREATE INDEX files4 ON files(host, state)"
           else return ()
 
 matchClause :: GAddress -> String
@@ -173,10 +174,9 @@ nextFinder mv conn recent =
                                                        dtype = head dt}
                                     let newlist = take memorysize (h : recent)
                                     putMVar mv (Just ga)
-                                    --performGC
                                     fetchdb sth newlist (count + 1) skipped
                     else return (count, skipped, recent)
-          memorysize = (fromIntegral (numThreads - 1))::Int
+          memorysize = (fromIntegral (numThreads) + 1)::Int
 
 {- | Propogate SQL exceptions to IO monad. -}
 handleSqlError :: IO a -> IO a

@@ -27,7 +27,7 @@ instance Show GAddress where
     show a = concat . intersperse ":" $
              [host a, show (port a), [dtype a], path a]
 
-data State = NotVisited | VisitingNow | Visited | ErrorState
+data State = NotVisited | VisitingNow | Visited | ErrorState | Excluded
     deriving (Eq, Read, Show)
 
 startingAddresses :: [GAddress]
