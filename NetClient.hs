@@ -69,6 +69,12 @@ recvBlocks s action state =
           then return state
           else do newstate <- action state buf
                   recvBlocks s action newstate
+    where dorecv s len =
+              catch (recv s len)
+                    (\e -> if isEOFError e 
+                               then return []
+                               else ioError e
+                    )
 
 -- FIXME: this is slow and a RAM hog.
 
