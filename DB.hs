@@ -38,6 +38,9 @@ initdb =
     do msg " *** Initializing database system..."
        handleSqlError $
          do c <- connect ("state.sql3") ReadWriteMode
+            execute c "pragma synchronous = off"
+            execute c "pragma temp_store = memory"
+            execute c "pragma cache_size = 60000"
             initTables c
             r <- getCount c $ "state = " ++ ce (show VisitingNow)
             when (r > 0) (msg $ "Resetting " ++ (show r) ++ 
