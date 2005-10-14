@@ -161,7 +161,7 @@ procItem lock c item = procIfRobotsOK lock c item $
                            ++ (show e)
                        updateItem lock c item ErrorState (show e)
              )
-
+       msg "a"
        -- Now, download it.  If it's a menu (item type 1), check it for links
        -- (spider it).  Error here means a TCP problem, so mark every
        -- item on this host as having the error.
