@@ -139,44 +139,46 @@ popItem lock gasupply conn = withLock lock $ handleSqlError $
 Run forever. -}
 nextFinder :: MVar (Maybe GAddress) -> Connection -> [String] -> IO ()
 nextFinder mv conn recent =
-    do msg " *** Yielding more hosts..."
-       sth <- query conn $ "SELECT * FROM files WHERE state = " ++
-                         (toSqlValue (show NotVisited))
+    do sth <- query conn $ "SELECT * FROM files WHERE state = " ++
+                         (toSqlValue (show NotVisited)) ++ " " ++
+                         (whereclause recent)
+                         ++ " LIMIT 1"
                          -- ++ " LIMIT " ++ show (10 * numThreads)
-       (count, skipped, newrecent) <- fetchdb sth [] 0 0
-       closeStatement sth
-       msg $ " *** Processed " ++ (show count) ++ ", skipped " ++
-               (show skipped) ++ " selectors on last run."
-       when (count == 0 && skipped /= 0)
-            -- Didn't return anything but we have records that were skipped.
-            -- Wait a bit before we call ourselves.
-            (threadDelay (30 * 1000000))
-       if count == 0 && skipped == 0
-          -- Didn't find anything, so we send the shutdown message (Nothing)
-          -- all over the place.
-          then replicateM_ (fromIntegral numThreads) (putMVar mv Nothing)
-          else nextFinder mv conn newrecent
+       r <- fetch sth
+       if r
+          then do h <- getFieldValue sth "host"
+                  p <- getFieldValue sth "port"
+                  pa <- getFieldValue sth "path"
+                  dt <- getFieldValue sth "dtype"
+                  let po = read p
+                  let ga = GAddress {host = h, port = po, path = pa, 
+                                     dtype = head dt}
+                  let recent' = take memorysize (h : recent)
+                  closeStatement sth
+                  putMVar mv (Just ga)
+                  --performGC
+                  nextFinder mv conn recent'
+          else do closeStatement sth
+                  n <- getCount conn $ "state = " ++ 
+                       toSqlValue (show NotVisited)
+                  if n == 0
+                     -- Didn't find anything, so we send the shutdown 
+                     -- message (Nothing)
+                     -- all over the place.
+                     then replicateM_ (fromIntegral numThreads)
+                              (putMVar mv Nothing)
+                     -- Didn't find anything because of recent list,
+                     -- but there are records.  Wait a bit and then try
+                     -- again.
+                     else do threadDelay (30 * 1000000)
+                             nextFinder mv conn recent
+    where memorysize = (fromIntegral (numThreads - 1))::Int
+          whereclause [] = ""
+          whereclause rl = " AND " ++ 
+                           (concat . intersperse " AND " .
+                            map (\i -> " (host != " ++ (ce i) ++ ") ") $ rl
+                           )
           
-    where fetchdb sth recent count skipped =
-              do r <- fetch sth
-                 if r 
-                    then do 
-                         h <- getFieldValue sth "host"
-                         if h `elem` recent -- We saw it recently, pass on it for now.
-                            then fetchdb sth recent count (skipped + 1)
-                            else do p <- getFieldValue sth "port"
-                                    pa <- getFieldValue sth "path"
-                                    dt <- getFieldValue sth "dtype"
-                                    let po = read p
-                                    let ga = GAddress {host = h, port = po, 
-                                                       path = pa, 
-                                                       dtype = head dt}
-                                    let newlist = take memorysize (h : recent)
-                                    putMVar mv (Just ga)
-                                    --performGC
-                                    fetchdb sth newlist (count + 1) skipped
-                    else return (count, skipped, recent)
-          memorysize = (fromIntegral (numThreads - 1))::Int
 
 {- | Propogate SQL exceptions to IO monad. -}
 handleSqlError :: IO a -> IO a
