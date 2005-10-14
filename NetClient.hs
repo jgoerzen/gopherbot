@@ -23,23 +23,29 @@ import Network.Socket
 import System.IO
 import Config
 import Foreign.C.Types
+import MissingH.Threads.Timeout
+
+timeo = 45 * 1000000
+cto :: String -> IO a -> IO a
+cto msg action =
+    do r <- timeout timeo action
+       case r of
+              Nothing -> fail msg
+              Just x -> return x
 
 dlItem :: GAddress -> FilePath -> IO ()
 dlItem ga fp =
-    do s <- connectTCP (host ga) (fromIntegral . port $ ga)
-       setSockOpt s
-       h <- socketToHandle s ReadWriteMode
-       hSetBinaryMode h True
-       hPutStr h $ (path ga) ++ "\r\n"
-       hFlush h
+    do s <- cto "Timeout on connect" $ 
+            connectTCP (host ga) (fromIntegral . port $ ga)
+       cto "Timeout on send" $ sendAll s $ (path ga) ++ "\r\n"
+       cto "Timeout on shotdown" $ shutdown s ShutdownSend
        if (dtype ga) == '1'
-          then dlTillDot h fp
-          else do c <- hGetContents h
-                  writeFile fp c
-       hClose h
+          then dlTillDot s fp
+          else dlTo s fp
+       cto "Timeout on close" $ sClose s
        
-dlTillDot h fp =
-    do c <- hGetContents h
+dlTillDot s fp =
+    do c <- sGetContents s
        writeFile fp (process c)
     where process :: String -> String
           process = unlines . proc' . lines
@@ -50,10 +56,28 @@ dlTillDot h fp =
           proc' (".\r\n":_) = []
           proc' (x:xs) = x : proc' xs
 
-setSockOpt :: Socket -> IO ()
-setSockOpt s =
-    do let fd = fdSocket s
-       configsock fd
+sendAll :: Socket -> String -> IO ()
+sendAll s [] = return ()
+sendAll s buf =
+    do bytessent <- send s buf
+       sendAll s (drop bytessent buf)
 
-foreign import ccall unsafe "cutils.h configsock"
-  configsock :: CInt -> IO ()
+recvBlocks :: Socket -> (a -> String -> IO a) -> a -> IO a
+recvBlocks s action state =
+    do buf <- cto "Timeout on recv" (recv s 8192)
+       if buf == []
+          then return state
+          else do nestate <- action state buf
+                  recvBlocks s action newstate
+
+-- FIXME: this is slow and a RAM hog.
+
+sGetContents :: Socket -> IO String
+sGetContents s =
+    recvBlocks s (\o n -> return $ o ++ n) []
+
+dlTo :: Socket -> FilePath -> IO ()
+dlTo s fp =
+    do h <- openFile fp WriteMode
+       recvBlocks s (\() buf -> hPutStr h buf) ()
+       hClose h
