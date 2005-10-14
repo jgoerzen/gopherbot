@@ -137,13 +137,13 @@ popItem lock gasupply conn = withLock lock $ handleSqlError $
 
 {- | Send new GAddress objects to the specified mvar. 
 Run forever. -}
-nextFinder :: MVar (Maybe GAddress) -> Connection -> IO ()
-nextFinder mv conn =
+nextFinder :: MVar (Maybe GAddress) -> Connection -> [String] -> IO ()
+nextFinder mv conn recent =
     do msg " *** Yielding more hosts..."
        sth <- query conn $ "SELECT * FROM files WHERE state = " ++
                          (toSqlValue (show NotVisited))
                          -- ++ " LIMIT " ++ show (10 * numThreads)
-       (count, skipped) <- fetchdb sth [] 0 0
+       (count, skipped, newrecent) <- fetchdb sth [] 0 0
        closeStatement sth
        msg $ " *** Processed " ++ (show count) ++ ", skipped " ++
                (show skipped) ++ " selectors on last run."
@@ -155,7 +155,7 @@ nextFinder mv conn =
           -- Didn't find anything, so we send the shutdown message (Nothing)
           -- all over the place.
           then replicateM_ (fromIntegral numThreads) (putMVar mv Nothing)
-          else nextFinder mv conn
+          else nextFinder mv conn newrecent
           
     where fetchdb sth recent count skipped =
               do r <- fetch sth
@@ -174,8 +174,8 @@ nextFinder mv conn =
                                     let newlist = take memorysize (h : recent)
                                     putMVar mv (Just ga)
                                     --performGC
-                                    fetchdb sth recent (count + 1) skipped
-                    else return (count, skipped)
+                                    fetchdb sth newlist (count + 1) skipped
+                    else return (count, skipped, recent)
           memorysize = (fromIntegral (numThreads - 1))::Int
 
 {- | Propogate SQL exceptions to IO monad. -}

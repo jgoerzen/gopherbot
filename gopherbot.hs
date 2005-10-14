@@ -56,7 +56,7 @@ runScan gasupply l c =
        -- This is the thread that displays status updates every so often
        stats <- forkIO (statsthread l c)
        -- And this is the thread that supplies items to process
-       supplier <- forkIO (nextFinder gasupply c)
+       supplier <- forkIO (nextFinder gasupply c [])
        -- When the main thread exits, so does the program, so
        -- we wait for all children before exiting.
        waitForChildren children
