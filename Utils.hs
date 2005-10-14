@@ -18,6 +18,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 module Utils where
 
+import Types
 import Config
 import MissingH.Maybe
 import MissingH.Path
@@ -35,8 +36,6 @@ getFSPath ga =
               (path ga) ++ case (dtype ga) of
                                            '1' -> "/.gophermap"
                                            _ -> ""
-
-type Lock = MVar ThreadId
 
 newLock :: IO Lock
 newLock = newEmptyMVar

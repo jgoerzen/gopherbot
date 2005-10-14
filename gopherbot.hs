@@ -19,6 +19,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 module Main where
 
 import Config
+import Types
 import Control.Monad(when, unless)
 import Control.Exception(finally)
 import System.Directory
@@ -40,7 +41,8 @@ main = niceSocketsDo $          -- Prepare things for sockets
        l <- newLock             -- Global lock for db updates
        c <- initdb              -- Initialize the database and get a conn
        gasupply <- newEmptyMVar -- Global MVar for the supply of selectors
-       runScan gasupply l c     -- main scanner
+       lsupply <- newLock       -- Lock for gasupply
+       runScan (lsupply, gasupply) l c  -- main scanner
        disconnect c             -- shut down
 
 {- | Set up all the threads and get them going. -}

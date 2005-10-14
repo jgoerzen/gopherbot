@@ -21,7 +21,7 @@ module NetClient where
 import MissingH.Network
 import Network.Socket
 import System.IO
-import Config
+import Types
 import Foreign.C.Types
 import MissingH.Threads.Timeout
 import Utils(msg)

@@ -18,7 +18,8 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 module DB where
 
-import Config
+import Types
+import Config(numThreads)
 import Database.HSQL
 import Database.HSQL.SQLite3
 import Data.Char
@@ -134,19 +135,19 @@ to Visiting.  Returns Nothing if there is no next item.
 
 General algorithm: get a list of the top (15*numThreads) eligible hosts,
 then pick one. -}
-popItem :: Lock -> MVar (Maybe GAddress) -> Connection -> IO (Maybe GAddress)
-popItem lock gasupply conn = withLock lock $ handleSqlError $
+popItem :: Lock -> GASupply -> Connection -> IO (Maybe GAddress)
+popItem lock (galock, gasupply) conn = withLock galock $ handleSqlError $
     do newga <- takeMVar gasupply
        case newga of
                Nothing -> return Nothing
-               Just ga -> do updateItemNL conn ga VisitingNow ""
+               Just ga -> do updateItem lock conn ga VisitingNow ""
                              --addHost hosts (host ga)
                              return (Just ga)
 
 {- | Send new GAddress objects to the specified mvar. 
 Run forever. -}
-nextFinder :: MVar (Maybe GAddress) -> Connection -> [String] -> IO ()
-nextFinder mv conn recent =
+nextFinder :: GASupply -> Connection -> [String] -> IO ()
+nextFinder (galock, mv) conn recent =
     do msg " *** Yielding more hosts..."
        sth <- query conn $ "SELECT * FROM files WHERE state = " ++
                          (toSqlValue (show NotVisited))
@@ -164,7 +165,7 @@ nextFinder mv conn recent =
           -- Didn't find anything, so we send the shutdown message (Nothing)
           -- all over the place.
           then replicateM_ (fromIntegral numThreads) (putMVar mv Nothing)
-          else nextFinder mv conn newrecent
+          else nextFinder (galock, mv) conn newrecent
           
     where fetchdb sth recent count skipped =
               do r <- fetch sth

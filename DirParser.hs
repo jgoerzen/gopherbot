@@ -18,7 +18,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 module DirParser (parseGMap) where
 
-import Config
+import Types
 import Text.ParserCombinators.Parsec
 import Utils
 import Data.Char

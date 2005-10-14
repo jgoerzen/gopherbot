@@ -16,16 +16,22 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 -}
 
-module Config where
+module Types where
+import Control.Concurrent(ThreadId)
+import Control.Concurrent.MVar(MVar)
 import Data.List
-import Types
 
-startingAddresses :: [GAddress]
-startingAddresses = 
-    [GAddress {host="home.jumpjet.info",port= 70,dtype= '1',path= "1/Gopher_Jewels_2"}]
-excludeServers = [] --["gopher.quux.org", "quux.org"]
-baseDir = "/home/jgoerzen/tree/gopher-arch"
+type GASupply = (Lock, MVar (Maybe GAddress))
+data State = NotVisited | VisitingNow | Visited | ErrorState | Excluded
+    deriving (Eq, Read, Show)
 
-numThreads = 13
+data GAddress = GAddress {host :: String, port :: Int, dtype :: Char,
+                          path :: String}
+    deriving (Eq)
 
+instance Show GAddress where
+    show a = concat . intersperse ":" $
+             [host a, show (port a), [dtype a], path a]
+
+type Lock = MVar ThreadId
 
