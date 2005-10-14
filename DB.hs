@@ -144,7 +144,7 @@ nextFinder mv conn recent =
        sth <- query conn $ "SELECT * FROM files WHERE state = " ++
                          (toSqlValue (show NotVisited))
                          -- ++ " LIMIT " ++ show (10 * numThreads)
-       (count, skipped, newrecent) <- fetchdb sth [] 0 0
+       (count, skipped, newrecent) <- fetchdb sth recent 0 0
        closeStatement sth
        msg $ " *** Processed " ++ (show count) ++ ", skipped " ++
                (show skipped) ++ " selectors on last run."
@@ -152,6 +152,7 @@ nextFinder mv conn recent =
             -- Didn't return anything but we have records that were skipped.
             -- Wait a bit before we call ourselves.
             (threadDelay (30 * 1000000))
+            -- FIXME: should also empty out newrecent here
        if count == 0 && skipped == 0
           -- Didn't find anything, so we send the shutdown message (Nothing)
           -- all over the place.
@@ -163,6 +164,7 @@ nextFinder mv conn recent =
                  if r 
                     then do 
                          h <- getFieldValue sth "host"
+                         yield
                          if h `elem` recent -- We saw it recently, pass on it for now.
                             then fetchdb sth recent count (skipped + 1)
                             else do p <- getFieldValue sth "port"
@@ -176,7 +178,7 @@ nextFinder mv conn recent =
                                     putMVar mv (Just ga)
                                     fetchdb sth newlist (count + 1) skipped
                     else return (count, skipped, recent)
-          memorysize = (fromIntegral (numThreads) + 1)::Int
+          memorysize = (fromIntegral (numThreads))::Int
 
 {- | Propogate SQL exceptions to IO monad. -}
 handleSqlError :: IO a -> IO a
