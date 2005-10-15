@@ -137,14 +137,21 @@ to Visiting.  Returns Nothing if there is no next item.
 General algorithm: get a list of the top (15*numThreads) eligible hosts,
 then pick one. -}
 popItem :: Lock -> GASupply -> Connection -> IO (Maybe GAddress)
-popItem lock gamv conn = handleSqlError $ modifyMVar gamv $
-                         fixHL (popItem' lock gamv conn False False)
+popItem lock gamv conn = 
+    do r <- handleSqlError $ modifyMVar gamv $
+            fixHL (popItem' lock gamv conn False False)
+       case r of
+              StartOver -> do threadDelay (30 * 1000000)
+                              popItem lock gamv conn
+              PIData x -> return (Just x)
+              NoData -> return Nothing
 
 fixHL action (hl, x) =
     do t <- myThreadId
        let newhl = Map.delete t hl
        action (newhl, x)
 
+data PIResult = StartOver | PIData GAddress | NoData
 popItem' lock gamv conn isNewSth haveRestarted (hl, Nothing) =
     do msg " *** Beginning new iteration"
        sth <- query conn $ 
@@ -159,12 +166,11 @@ popItem' lock gamv conn isNewSth haveRestarted mv@(hl, Just sth) =
          (True, False) -> -- If we just issued a query, and got back zero 
                           -- results, there is no more data to process.
                           do closeStatement sth
-                             return $ ((hl, Nothing), Nothing)
+                             return $ ((hl, Nothing), NoData)
          (False, False) -> -- Not new query, no rows: start over.
                            -- Sleep if we have already started over this round.
                            do closeStatement sth
-                              when (haveRestarted) (threadDelay (30 * 1000000))
-                              popItem' lock gamv conn True True (hl, Nothing)
+                              return ((hl, Nothing), StartOver)
          (_, True) -> -- Have rows.
                       do h <- getFieldValue sth "host"
                          if h `elem` Map.elems hl
@@ -182,7 +188,7 @@ popItem' lock gamv conn isNewSth haveRestarted mv@(hl, Just sth) =
                                  t <- myThreadId
                                  let newhl = Map.insert t h hl
                                  updateItem lock conn ga VisitingNow ""
-                                 return $ ((newhl, Just sth), Just ga)
+                                 return $ ((newhl, Just sth), PIData ga)
 
 {- | Propogate SQL exceptions to IO monad. -}
 handleSqlError :: IO a -> IO a
