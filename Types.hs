@@ -20,8 +20,10 @@ module Types where
 import Control.Concurrent(ThreadId)
 import Control.Concurrent.MVar(MVar)
 import Data.List
+import Data.Map(Map)
+import Database.HSQL(Statement)
 
-type GASupply = (Lock, MVar (Maybe GAddress))
+type GASupply = MVar (Map ThreadId String, Maybe Statement)
 data State = NotVisited | VisitingNow | Visited | ErrorState | Excluded
     deriving (Eq, Read, Show)
 

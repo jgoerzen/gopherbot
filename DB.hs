@@ -33,6 +33,7 @@ import Control.Concurrent
 import Data.HashTable as HT
 import MissingH.Maybe
 import System.Time
+import qualified Data.Map as Map
 
 {- | Initialize the database system. -}
 initdb :: IO Connection
@@ -136,57 +137,50 @@ to Visiting.  Returns Nothing if there is no next item.
 General algorithm: get a list of the top (15*numThreads) eligible hosts,
 then pick one. -}
 popItem :: Lock -> GASupply -> Connection -> IO (Maybe GAddress)
-popItem lock (galock, gasupply) conn = withLock galock $ handleSqlError $
-    do newga <- takeMVar gasupply
-       case newga of
-               Nothing -> return Nothing
-               Just ga -> do updateItem lock conn ga VisitingNow ""
-                             --addHost hosts (host ga)
-                             return (Just ga)
+popItem lock gamv conn = handleSqlError $ modifyMVar gamv $
+                         fixHL (popItem' lock gamv conn False False)
 
-{- | Send new GAddress objects to the specified mvar. 
-Run forever. -}
-nextFinder :: GASupply -> Connection -> [String] -> IO ()
-nextFinder (galock, mv) conn recent =
-    do msg " *** Yielding more hosts..."
-       sth <- query conn $ "SELECT * FROM files WHERE state = " ++
-                         (toSqlValue (show NotVisited))
-                         -- ++ " LIMIT " ++ show (10 * numThreads)
-       (count, skipped, newrecent) <- fetchdb sth recent 0 0
-       closeStatement sth
-       msg $ " *** Processed " ++ (show count) ++ ", skipped " ++
-               (show skipped) ++ " selectors on last run."
-       when (count == 0 && skipped /= 0)
-            -- Didn't return anything but we have records that were skipped.
-            -- Wait a bit before we call ourselves.
-            (threadDelay (30 * 1000000))
-            -- FIXME: should also empty out newrecent here
-       if count == 0 && skipped == 0
-          -- Didn't find anything, so we send the shutdown message (Nothing)
-          -- all over the place.
-          then replicateM_ (fromIntegral numThreads) (putMVar mv Nothing)
-          else nextFinder (galock, mv) conn newrecent
-          
-    where fetchdb sth recent count skipped =
-              do r <- fetch sth
-                 if r 
-                    then do 
-                         h <- getFieldValue sth "host"
-                         yield
-                         if h `elem` recent -- We saw it recently, pass on it for now.
-                            then fetchdb sth recent count (skipped + 1)
-                            else do p <- getFieldValue sth "port"
-                                    pa <- getFieldValue sth "path"
-                                    dt <- getFieldValue sth "dtype"
-                                    let po = read p
-                                    let ga = GAddress {host = h, port = po, 
-                                                       path = pa, 
-                                                       dtype = head dt}
-                                    let newlist = take memorysize (h : recent)
-                                    putMVar mv (Just ga)
-                                    fetchdb sth newlist (count + 1) skipped
-                    else return (count, skipped, recent)
-          memorysize = (fromIntegral (numThreads))::Int
+fixHL action (hl, x) =
+    do t <- myThreadId
+       let newhl = Map.delete t hl
+       action (newhl, x)
+
+popItem' lock gamv conn isNewSth haveRestarted (hl, Nothing) =
+    do sth <- query conn $ 
+              "SELECT * FROM files WHERE state = " ++
+               (toSqlValue (show NotVisited))
+               -- ++ " LIMIT " ++ show (10 * numThreads)
+       popItem' lock gamv conn True haveRestarted (hl, Just sth)
+popItem' lock gamv conn isNewSth haveRestarted mv@(hl, Just sth) =
+    do r <- fetch sth
+
+       case (isNewSth, r) of
+         (True, False) -> -- If we just issued a query, and got back zero 
+                          -- results, there is no more data to process.
+                          do closeStatement sth
+                             return $ ((hl, Nothing), Nothing)
+         (False, False) -> -- Not new query, no rows: start over.
+                           -- Sleep if we have already started over this round.
+                           do closeStatement sth
+                              when (haveRestarted) (threadDelay (30 * 1000000))
+                              popItem' lock gamv conn True True (hl, Nothing)
+         (_, True) -> -- Have rows.
+                      do h <- getFieldValue sth "host"
+                         if h `elem` Map.elems hl
+                            -- Another thread is watching this.
+                            then popItem' lock gamv conn False haveRestarted
+                                    (hl, Just sth)
+                            else do -- We have a winner!
+                                 p <- getFieldValue sth "port"
+                                 pa <- getFieldValue sth "path"
+                                 dt <- getFieldValue sth "dtype"
+                                 let po = read p
+                                 let ga = GAddress {host = h, port = po, 
+                                                    path = pa, 
+                                                    dtype = head dt}
+                                 t <- myThreadId
+                                 let newhl = Map.insert t h hl
+                                 return $ ((newhl, Just sth), Just ga)
 
 {- | Propogate SQL exceptions to IO monad. -}
 handleSqlError :: IO a -> IO a

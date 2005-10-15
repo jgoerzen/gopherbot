@@ -34,15 +34,16 @@ import Control.Concurrent
 import Data.List
 import Control.Exception(bracket_)
 import RobotsTxt
+import Control.Concurrent
+import qualified Data.Map as Map
 
 {- | Main entry point for the program. -}
 main = niceSocketsDo $          -- Prepare things for sockets
     do setCurrentDirectory baseDir -- chdir to the working dir
        l <- newLock             -- Global lock for db updates
        c <- initdb              -- Initialize the database and get a conn
-       gasupply <- newEmptyMVar -- Global MVar for the supply of selectors
-       lsupply <- newLock       -- Lock for gasupply
-       runScan (lsupply, gasupply) l c  -- main scanner
+       gasupply <- newMVar (Map.empty, Nothing) -- Global MVar for the supply of selectors
+       runScan gasupply l c  -- main scanner
        disconnect c             -- shut down
 
 {- | Set up all the threads and get them going. -}
@@ -57,8 +58,6 @@ runScan gasupply l c =
                    (\_ -> myForkIO (procLoop l gasupply c)) [1..numThreads]
        -- This is the thread that displays status updates every so often
        stats <- forkIO (statsthread l c)
-       -- And this is the thread that supplies items to process
-       supplier <- forkIO (nextFinder gasupply c [])
        -- When the main thread exits, so does the program, so
        -- we wait for all children before exiting.
        waitForChildren children
