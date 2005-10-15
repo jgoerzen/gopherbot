@@ -39,7 +39,7 @@ dlItem ga fp =
     do s <- cto "Timeout on connect" $ 
             connectTCP (host ga) (fromIntegral . port $ ga)
        cto "Timeout on send" $ sendAll s $ (path ga) ++ "\r\n"
-       cto "Timeout on shotdown" $ shutdown s ShutdownSend
+       --cto "Timeout on shotdown" $ shutdown s ShutdownSend
        if (dtype ga) == '1'
           then dlTillDot s fp
           else dlTo s fp
