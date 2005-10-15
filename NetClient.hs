@@ -26,7 +26,7 @@ import Foreign.C.Types
 import MissingH.Threads.Timeout
 import System.IO.Error
 
-timeo = 45 * 1000000
+timeo = 120 * 1000000
 cto :: String -> IO a -> IO a
 cto msg action =
     do r <- timeout timeo action

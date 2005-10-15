@@ -43,7 +43,7 @@ initdb =
          do c <- connect ("state.sql3") ReadWriteMode
             execute c "pragma synchronous = off"
             execute c "pragma temp_store = memory"
-            execute c "pragma cache_size = 60000"
+            execute c "pragma cache_size = 90000"
             initTables c
             r <- getCount c $ "state = " ++ ce (show VisitingNow)
             when (r > 0) (msg $ "Resetting " ++ (show r) ++ 
@@ -175,8 +175,9 @@ popItem' lock gamv conn isNewSth haveRestarted mv@(hl, Just sth) =
                       do h <- getFieldValue sth "host"
                          if h `elem` Map.elems hl
                             -- Another thread is watching this.
-                            then popItem' lock gamv conn False haveRestarted
-                                    (hl, Just sth)
+                            then do yield
+                                    popItem' lock gamv conn False haveRestarted
+                                      (hl, Just sth)
                             else do -- We have a winner!
                                  p <- getFieldValue sth "port"
                                  pa <- getFieldValue sth "path"
