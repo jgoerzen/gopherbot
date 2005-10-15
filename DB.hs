@@ -146,7 +146,8 @@ fixHL action (hl, x) =
        action (newhl, x)
 
 popItem' lock gamv conn isNewSth haveRestarted (hl, Nothing) =
-    do sth <- query conn $ 
+    do msg " *** Beginning new iteration"
+       sth <- query conn $ 
               "SELECT * FROM files WHERE state = " ++
                (toSqlValue (show NotVisited))
                -- ++ " LIMIT " ++ show (10 * numThreads)
