@@ -180,6 +180,7 @@ popItem' lock gamv conn isNewSth haveRestarted mv@(hl, Just sth) =
                                                     dtype = head dt}
                                  t <- myThreadId
                                  let newhl = Map.insert t h hl
+                                 updateItem lock conn ga VisitingNow ""
                                  return $ ((newhl, Just sth), Just ga)
 
 {- | Propogate SQL exceptions to IO monad. -}
