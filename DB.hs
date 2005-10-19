@@ -73,13 +73,20 @@ matchClause g =
     ++ ce (path g) ++ " AND dtype = "
     ++ toSqlValue [dtype g]
 
-noteErrorOnHost :: Lock -> Connection -> String -> String -> IO ()
-noteErrorOnHost l c h log = withLock l $ handleSqlError $
-     do t <- now
-        execute c $ "UPDATE FILES SET state = " ++
+noteErrorOnHost :: Lock -> GASupply -> Connection -> String -> String -> IO ()
+noteErrorOnHost l gasupply c h log = handleSqlError $
+     do t <- myThreadId
+        modifyMVar gasupply (\m -> bracket_ (acquire l) (release l) $
+            do ti <- now
+               case Map.lookup t m of
+                 Nothing -> return ()
+                 Just (h, sth) -> closeStatement sth
+               execute c $ "UPDATE FILES SET state = " ++
                  ce (show ErrorState) ++
-                 ", log = " ++ ce log ++ ", timestamp = " ++ t ++
+                 ", log = " ++ ce log ++ ", timestamp = " ++ ti ++
                  " WHERE host = " ++ ce h
+               return (Map.delete t m, ())
+                        )
 
 updateItem :: Lock -> Connection -> GAddress -> State -> String -> IO ()
 updateItem lock conn g s log = withLock lock $ updateItemNL conn g s log

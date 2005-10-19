@@ -94,7 +94,7 @@ Otherwise, call procItem, pop the next, and then call itself. -}
 procLoop' lock gasupply c i =
     do case i of
          Nothing -> msg $ "Exiting"
-         Just item -> do procItem lock c item
+         Just item -> do procItem lock gasupply c item
                          -- Popping the next item before releasing the current
                          -- host is a simple form of being nice to remotes
                          i <- popItem lock gasupply c
@@ -108,11 +108,11 @@ data RobotStatus = RobotsOK     -- ^ Proceed
 {- | Given a 'GAddress' (corresponding to a single item),
 check to see if it's OK to download according to robots.txt.
 -}
-checkRobots :: Lock -> Connection -> GAddress -> IO RobotStatus
-checkRobots lock c ga =
+checkRobots :: Lock -> GASupply -> Connection -> GAddress -> IO RobotStatus
+checkRobots lock gasupply c ga =
     do let fspath = getFSPath garobots
        dfe <- doesFileExist fspath
-       unless (dfe) (procItem lock c garobots) -- Download file if needed
+       unless (dfe) (procItem lock gasupply c garobots) -- Download file if needed
        dfe2 <- doesFileExist fspath -- Do we have it yet?
        if dfe2
           then -- Yes.  Parse it, and see what happened.
@@ -125,10 +125,10 @@ checkRobots lock c ga =
     where garobots = ga {path = "robots.txt", dtype = '0'}
 
 {- | Run an IO action, but only if it's OK according to robots.txt. -}
-procIfRobotsOK :: Lock -> Connection -> GAddress -> IO () -> IO ()
-procIfRobotsOK lock c item action =
+procIfRobotsOK :: Lock -> GASupply -> Connection -> GAddress -> IO () -> IO ()
+procIfRobotsOK lock gasupply c item action =
               do r <- if (path item /= "robots.txt")
-                          then checkRobots lock c item
+                          then checkRobots lock gasupply c item
                           else -- Don't try to check if robots.txt itself is ok
                                return RobotsOK
                  case r of
@@ -147,7 +147,7 @@ procIfRobotsOK lock c item action =
 
 {- | OK, we have an item.  If it's OK according to robots.txt, download
 and process it. -}
-procItem lock c item = procIfRobotsOK lock c item $
+procItem lock gasupply c item = procIfRobotsOK lock gasupply c item $
     do msg $ show item          -- Show what we're up to
        let fspath = getFSPath item
 
@@ -170,7 +170,7 @@ procItem lock c item = procIfRobotsOK lock c item $
                  updateItem lock c item Visited ""
              )
           (\e -> do msg $ "Error on " ++ (show item) ++ ": " ++ (show e)
-                    noteErrorOnHost lock c (host item) (show e)
+                    noteErrorOnHost lock gasupply c (host item) (show e)
           )
                   
 {- | This function is called by procItem whenever it downloads a
