@@ -134,62 +134,61 @@ numToProc conn = handleSqlError $
 {- | Gets the next item to visit, if any, and sets the status
 to Visiting.  Returns Nothing if there is no next item.
 
-General algorithm: get a list of the top (15*numThreads) eligible hosts,
-then pick one. -}
+General algorithm: pick an available host (one not being serviced by
+another thread) and process everything possible within it.
+-}
 popItem :: Lock -> GASupply -> Connection -> IO (Maybe GAddress)
-popItem lock gamv conn = 
-    do r <- handleSqlError $ modifyMVar gamv $
-            fixHL (popItem' lock gamv conn False False)
-       case r of
-              StartOver -> do threadDelay (30 * 1000000)
-                              popItem lock gamv conn
-              PIData x -> return (Just x)
-              NoData -> return Nothing
-
-fixHL action (hl, x) =
+popItem lock gamv conn = handleSqlError $ 
     do t <- myThreadId
-       let newhl = Map.delete t hl
-       action (newhl, x)
+       modifyMVar gamv (\map -> bracket_ (acquire lock) (release lock) $
+         case Map.lookup t map of
+           Nothing -> beginSearch map conn
+           Just (host, sth) -> fetchSth map (host, sth) conn
+                       )
 
-data PIResult = StartOver | PIData GAddress | NoData
-popItem' lock gamv conn isNewSth haveRestarted (hl, Nothing) =
-    do msg " *** Beginning new iteration"
-       sth <- query conn $ 
-              "SELECT * FROM files WHERE state = " ++
-               (toSqlValue (show NotVisited))
-               -- ++ " LIMIT " ++ show (10 * numThreads)
-       popItem' lock gamv conn True haveRestarted (hl, Just sth)
-popItem' lock gamv conn isNewSth haveRestarted mv@(hl, Just sth) =
+{- Begin the search for new selectors.  We can assume that this
+thread is not in the map, since this function is only called in that case. -}
+beginSearch m conn = handleSqlError  $
+    do sth <- query conn $ "SELECT host FROM files WHERE state = " ++
+                           (toSqlValue $ show NotVisited) ++ " "
+                           ++ whereclause
+                           ++ " LIMIT 1"
+       t <- myThreadId
+       r <- fetch sth
+       if r
+          then do h <- getFieldValue sth "host"
+                  closeStatement sth
+                  newsth <- query conn $ "SELECT * FROM files WHERE state = " 
+                                       ++ (toSqlValue $ show NotVisited) ++
+                                       " AND host = " ++ ce h
+                  let newmap = Map.insert t (h, newsth) m
+                  fetchSth newmap (h, newsth) conn
+          else do closeStatement sth
+                  msg "No available hosts; dying"
+                  -- Couldn't find any available hosts.  For now, we just die.
+                  -- FIXME: later should find a better way to do this.
+                  return (m, Nothing)
+    where whereclause = 
+              case map fst (Map.elems m) of
+                [] -> ""
+                x -> " AND " ++ (concat . intersperse " AND " . 
+                                 map (\y -> " host != " ++ ce y) $ x)
+
+fetchSth m (host, sth) conn =
     do r <- fetch sth
+       if r
+          then do h <- getFieldValue sth "host"
+                  p <- getFieldValue sth "port"
+                  pa <- getFieldValue sth "path"
+                  dt <- getFieldValue sth "dtype"
+                  let po = read p
+                  let ga = GAddress {host = h, port = po, 
+                                     path = pa, dtype = head dt}
+                  return (m, Just ga)
 
-       case (isNewSth, r) of
-         (True, False) -> -- If we just issued a query, and got back zero 
-                          -- results, there is no more data to process.
-                          do closeStatement sth
-                             return $ ((hl, Nothing), NoData)
-         (False, False) -> -- Not new query, no rows: start over.
-                           -- Sleep if we have already started over this round.
-                           do closeStatement sth
-                              return ((hl, Nothing), StartOver)
-         (_, True) -> -- Have rows.
-                      do h <- getFieldValue sth "host"
-                         if h `elem` Map.elems hl
-                            -- Another thread is watching this.
-                            then do yield
-                                    popItem' lock gamv conn False haveRestarted
-                                      (hl, Just sth)
-                            else do -- We have a winner!
-                                 p <- getFieldValue sth "port"
-                                 pa <- getFieldValue sth "path"
-                                 dt <- getFieldValue sth "dtype"
-                                 let po = read p
-                                 let ga = GAddress {host = h, port = po, 
-                                                    path = pa, 
-                                                    dtype = head dt}
-                                 t <- myThreadId
-                                 let newhl = Map.insert t h hl
-                                 updateItem lock conn ga VisitingNow ""
-                                 return $ ((newhl, Just sth), PIData ga)
+          else do t <- myThreadId
+                  closeStatement sth
+                  beginSearch (Map.delete t m) conn
 
 {- | Propogate SQL exceptions to IO monad. -}
 handleSqlError :: IO a -> IO a

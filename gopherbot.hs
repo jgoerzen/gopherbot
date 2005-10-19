@@ -42,7 +42,7 @@ main = niceSocketsDo $          -- Prepare things for sockets
     do setCurrentDirectory baseDir -- chdir to the working dir
        l <- newLock             -- Global lock for db updates
        c <- initdb              -- Initialize the database and get a conn
-       gasupply <- newMVar (Map.empty, Nothing) -- Global MVar for the supply of selectors
+       gasupply <- newMVar Map.empty -- Global MVar for current status
        runScan gasupply l c  -- main scanner
        disconnect c             -- shut down
 

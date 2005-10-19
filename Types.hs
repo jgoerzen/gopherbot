@@ -23,7 +23,8 @@ import Data.List
 import Data.Map(Map)
 import Database.HSQL(Statement)
 
-type GASupply = MVar (Map ThreadId String, Maybe Statement)
+type GASupply = MVar (Map ThreadId (String, Statement))
+
 data State = NotVisited | VisitingNow | Visited | ErrorState | Excluded
     deriving (Eq, Read, Show)
 
