@@ -25,6 +25,7 @@ import Types
 import Foreign.C.Types
 import MissingH.Threads.Timeout
 import System.IO.Error
+import Control.Exception(finally, bracket)
 
 timeo = 120 * 1000000
 cto :: String -> IO a -> IO a
@@ -38,12 +39,12 @@ dlItem :: GAddress -> FilePath -> IO ()
 dlItem ga fp =
     do s <- cto "Timeout on connect" $ 
             connectTCP (host ga) (fromIntegral . port $ ga)
-       cto "Timeout on send" $ sendAll s $ (path ga) ++ "\r\n"
-       --cto "Timeout on shotdown" $ shutdown s ShutdownSend
-       if (dtype ga) == '1'
-          then dlTillDot s fp
-          else dlTo s fp
-       cto "Timeout on close" $ sClose s
+       (flip finally) (cto "Timeout on close" $ sClose s) 
+           $ do cto "Timeout on send" $ sendAll s $ (path ga) ++ "\r\n"
+                --cto "Timeout on shotdown" $ shutdown s ShutdownSend
+                if (dtype ga) == '1'
+                   then dlTillDot s fp
+                   else dlTo s fp
        
 dlTillDot s fp =
     do c <- sGetContents s
@@ -85,6 +86,6 @@ sGetContents s =
 
 dlTo :: Socket -> FilePath -> IO ()
 dlTo s fp =
-    do h <- openFile fp WriteMode
-       recvBlocks s (\() buf -> hPutStr h buf) ()
-       hClose h
+    do bracket (openFile fp WriteMode)
+               hClose
+               (\h -> recvBlocks s (\() buf -> hPutStr h buf) () )
