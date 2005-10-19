@@ -145,7 +145,7 @@ General algorithm: pick an available host (one not being serviced by
 another thread) and process everything possible within it.
 -}
 popItem :: Lock -> GASupply -> Connection -> IO (Maybe GAddress)
-popItem lock gamv conn = handleSqlError $ threadDelay 1000000 $
+popItem lock gamv conn = handleSqlError $ threadDelay 1000000 >> 
     do t <- myThreadId
        modifyMVar gamv (\map -> bracket_ (acquire lock) (release lock) $
          case Map.lookup t map of
