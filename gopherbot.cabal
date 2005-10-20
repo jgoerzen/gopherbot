@@ -11,6 +11,5 @@ Extensions: ExistentialQuantification, AllowOverlappingInstances,
     AllowUndecidableInstances, ForeignFunctionInterface
 GHC-Options: -O2
 CC-Options: -O3
-C-Sources: cutils.c
 Main-Is: gopherbot.hs
 
