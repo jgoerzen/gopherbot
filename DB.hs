@@ -43,6 +43,7 @@ initdb =
          do c <- connect "" "" "" ""
             initTables c
             r <- getCount c $ "state = " ++ ce (show VisitingNow)
+            execute c "SET ENABLE_SEQSCAN to OFF"
             when (r > 0) (msg $ "Resetting " ++ (show r) ++ 
                               " files from VisitingNow to NotVisited.")
             execute c $ "UPDATE FILES SET STATE = " ++
@@ -111,7 +112,7 @@ getCount :: Connection -> String -> IO Integer
 getCount conn whereclause =
     do sth <- query conn $ "SELECT COUNT(*) FROM FILES WHERE " ++ whereclause
        h <- fetch sth
-       r <- getFieldValue sth "COUNT(*)"
+       r <- getFieldValue sth "count"
        closeStatement sth
        return r
 
