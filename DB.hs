@@ -21,7 +21,7 @@ module DB where
 import Types
 import Config(numThreads)
 import Database.HSQL
-import Database.HSQL.SQLite3
+import Database.HSQL.PostgreSQL
 import Data.Char
 import System.IO
 import Data.List
@@ -40,10 +40,7 @@ initdb :: IO Connection
 initdb =
     do msg " *** Initializing database system..."
        handleSqlError $
-         do c <- connect ("state.sql3") ReadWriteMode
-            execute c "pragma synchronous = off"
-            execute c "pragma temp_store = memory"
-            execute c "pragma cache_size = 90000"
+         do c <- connect "" "" "" ""
             initTables c
             r <- getCount c $ "state = " ++ ce (show VisitingNow)
             when (r > 0) (msg $ "Resetting " ++ (show r) ++ 
@@ -58,11 +55,11 @@ initTables conn = handleSqlError $
        let t2 = map (map toUpper) t
        if not (elem "FILES" t2)
           then do execute conn "CREATE TABLE files (host TEXT, port INTEGER, dtype TEXT, path TEXT, state TEXT, timestamp INTEGER, log TEXT)"
-                  execute conn "CREATE UNIQUE INDEX files1 ON files(host, port, dtype, path, state)"
+                  execute conn "CREATE UNIQUE INDEX files1 ON files(host, state, port, path)"
                   --execute conn "CREATE INDEX files2 ON files(host, port)"
                   execute conn "CREATE INDEX filesstate ON files (state)"
-                  execute conn "CREATE INDEX files3 ON files(host)"
-                  execute conn "CREATE INDEX files4 ON files(host, state)"
+                  --execute conn "CREATE INDEX files3 ON files(host)"
+                  --execute conn "CREATE INDEX files4 ON files(host, state)"
           else return ()
 
 matchClause :: GAddress -> String
