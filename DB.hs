@@ -78,6 +78,7 @@ noteErrorOnHost l gasupply c h log = handleSqlError $
      do t <- myThreadId
         modifyMVar gasupply (\m -> bracket_ (acquire l) (release l) $
             do ti <- now
+               msg $ " *** Noting error on host " ++ h
                case Map.lookup t m of
                  Nothing -> return ()
                  Just (h, sth) -> closeStatement sth
