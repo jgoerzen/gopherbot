@@ -186,16 +186,16 @@ spider l c fspath =
 {- | This thread prints a periodic status update. -}
 statsthread :: Lock -> Connection -> IO ()
 statsthread l c =
-    do total <- getCount c "1 = 1"
-       let totaltext = show total ++ " total"
-       statetxts <- mapM (procstate total) states
+    do sth <- query c "SELECT state, COUNT(*) from files group by state order by state"
+       counts <- (forEachRow (\st s -> do thiss <- getFieldValue st "state"
+                                          thisc <- getFieldValue st "count"
+                                          return $ (thiss, thisc) : s
+                             ) sth [])::(IO [(String, Integer)])
+       let total = sum (map snd counts)
+       let totaltext = "Total " ++ show total
+       let statetxts = map (\(h, c) -> h ++ " " ++ show c) counts
        let disp = concat . intersperse ", " $ totaltext : statetxts
        msg disp
        threadDelay (120 * 1000000)
        statsthread l c
-    where states = [NotVisited, VisitingNow, Visited, ErrorState]
-          procstate total s =
-              do r <- getCount c ("state = " ++ toSqlValue (show s))
-                 let pct = r * 100 `div` total
-                 return $ show r ++ " (" ++ show pct ++ "%) " ++ (show s)
                  
