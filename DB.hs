@@ -36,12 +36,17 @@ import System.Time
 import qualified Data.Map as Map
 import qualified DBProcs
 
+dbconnect :: IO Connection
+dbconnect = handleSqlError $
+    do msg " *** Connecting to DB"
+       connect "" "" "" ""
+
 {- | Initialize the database system. -}
-initdb :: IO Connection
+initdb :: IO ()
 initdb =
     do msg " *** Initializing database system..."
        handleSqlError $
-         do c <- connect "" "" "" ""
+         do c <- dbconnect
             initTables c
             r <- getCount c $ "state = " ++ ce (show VisitingNow)
             execute c "SET ENABLE_SEQSCAN to OFF"
@@ -50,7 +55,7 @@ initdb =
             execute c $ "UPDATE FILES SET STATE = " ++
                     ce (show NotVisited) ++ " WHERE state = " ++
                     ce (show VisitingNow)
-            return c
+            disconnect c
 
 initTables conn = handleSqlError $
     do t <- tables conn

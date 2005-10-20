@@ -41,33 +41,34 @@ import qualified Data.Map as Map
 main = niceSocketsDo $          -- Prepare things for sockets
     do setCurrentDirectory baseDir -- chdir to the working dir
        l <- newLock             -- Global lock for db updates
-       c <- initdb              -- Initialize the database and get a conn
+       initdb                   -- Initialize the database and get a conn
        gasupply <- newMVar Map.empty -- Global MVar for current status
-       runScan gasupply l c  -- main scanner
-       disconnect c             -- shut down
+       runScan gasupply l       -- main scanner
 
 {- | Set up all the threads and get them going. -}
-runScan gasupply l c =
-    do n <- numToProc c
+runScan gasupply l =
+    do c <- dbconnect
+       n <- numToProc c
+       disconnect c
        msg $ (show n) ++ " items to process"
        when (n == 0)            -- Nothing to do: prime the db
           (mapM_ (\g -> updateItem l c g NotVisited "") startingAddresses)
        {- Fork off the childthreads.  Each one goes into a loop
           of waiting for new items to process and processing them. -}
        children <- mapM 
-                   (\_ -> myForkIO (procLoop l gasupply c)) [1..numThreads]
+                   (\_ -> myForkOS (procLoop l gasupply)) [1..numThreads]
        -- This is the thread that displays status updates every so often
-       stats <- forkIO (statsthread l c)
+       stats <- forkOS (statsthread l)
        -- When the main thread exits, so does the program, so
        -- we wait for all children before exiting.
        waitForChildren children
        
-{- | A simple wrapper around forkIO to notify the main thread when each
+{- | A simple wrapper around forkOS to notify the main thread when each
 individual thread dies. -}
-myForkIO :: IO () -> IO (MVar ThreadId)
-myForkIO io =
+myForkOS :: IO () -> IO (MVar ThreadId)
+myForkOS io =
     do mvar <- newEmptyMVar
-       forkIO (action `finally` (myThreadId >>= putMVar mvar))
+       forkOS (action `finally` (myThreadId >>= putMVar mvar))
        return mvar
     where action = do msg "started."
                       io
@@ -84,8 +85,9 @@ waitForChildren (c:xs) =
 
 {- | Main entry point for each worker thread.  We just pop the first item,
 then call procLoop'. -}
-procLoop lock gasupply c =
-    do i <- popItem lock gasupply c
+procLoop lock gasupply =
+    do c <- dbconnect
+       i <- popItem lock gasupply c
        procLoop' lock gasupply c i
 
 {- | Main worker loop.  We receive an item and process it.  If it's
@@ -184,9 +186,15 @@ spider l c fspath =
                    not (host a `elem` excludeServers)
 
 {- | This thread prints a periodic status update. -}
-statsthread :: Lock -> Connection -> IO ()
-statsthread l c =
-    do sth <- query c "SELECT state, COUNT(*) from files group by state order by state"
+statsthread :: Lock -> IO ()
+statsthread l =
+    do c <- dbconnect
+       statsthread' l c
+       disconnect c
+
+statsthread' l c =
+    do c <- dbconnect
+       sth <- query c "SELECT state, COUNT(*) from files group by state order by state"
        counts <- (forEachRow (\st s -> do thiss <- getFieldValue st "state"
                                           thisc <- getFieldValue st "count"
                                           return $ (thiss, thisc) : s
@@ -197,5 +205,5 @@ statsthread l c =
        let disp = concat . intersperse ", " $ totaltext : statetxts
        msg disp
        threadDelay (120 * 1000000)
-       statsthread l c
+       statsthread' l c
                  
