@@ -34,6 +34,7 @@ import Data.HashTable as HT
 import MissingH.Maybe
 import System.Time
 import qualified Data.Map as Map
+import qualified DBProcs
 
 {- | Initialize the database system. -}
 initdb :: IO Connection
@@ -61,6 +62,7 @@ initTables conn = handleSqlError $
                   execute conn "CREATE INDEX filesstate ON files (state, host)"
                   --execute conn "CREATE INDEX files3 ON files(host)"
                   --execute conn "CREATE INDEX files4 ON files(host, state)"
+                  mapM_ (execute conn) DBProcs.funcs
           else return ()
 
 matchClause :: GAddress -> String
@@ -93,10 +95,20 @@ updateItemNL :: Connection -> GAddress -> State -> String -> IO ()
 updateItemNL conn g s log = handleSqlError $ inTransaction conn (\c ->
                                              updateItemNLNT c g s log)
 
-insertItemNLNT :: Connection -> GAddress -> State -> String -> IO ()
-insertItemNLNT conn g s log =
+mergeItemNLNT :: Connection -> GAddress -> State -> String -> IO ()
+mergeItemNLNT conn g s log =
     do t <- now
-       execute conn $ "INSERT INTO files VALUES (" ++
+       execute conn $ "SELECT merge_files (" ++
+              ce (host g) ++ ", " ++
+              toSqlValue (port g) ++ ", " ++
+              ce [dtype g] ++ ", " ++
+              ce (path g) ++ ", " ++
+              ce (show s) ++ ", " ++
+              t ++ ", " ++ ce log ++ ")"
+
+queueItemNLNT conn g s log =
+    do t <- now
+       execute conn $ "SELECT queue_files (" ++
               ce (host g) ++ ", " ++
               toSqlValue (port g) ++ ", " ++
               ce [dtype g] ++ ", " ++
@@ -105,18 +117,7 @@ insertItemNLNT conn g s log =
               t ++ ", " ++ ce log ++ ")"
 
 updateItemNLNT :: Connection -> GAddress -> State -> String -> IO ()
-updateItemNLNT c g s log =
-    do t <- now
-       catchSql (insertItemNLNT c g s log)
-                (\_ -> execute c $ "UPDATE files SET " ++
-                       " host = " ++ ce (host g) ++
-                       ", port = " ++ toSqlValue (port g) ++
-                       ", dtype = " ++ ce [dtype g] ++
-                       ", path = " ++ ce (path g) ++
-                       ", state = " ++ ce (show s) ++
-                       ", timestamp = " ++ t ++ 
-                       ", log = " ++ ce log ++ " WHERE " ++ matchClause g
-                )
+updateItemNLNT c g s log = mergeItemNLNT c g s log
                    
 now = do c <- getClockTime
          return $ toSqlValue ((\(TOD x _) -> x) c)
@@ -140,7 +141,7 @@ queueItems lock conn g = withLock lock $ inTransaction conn
 -- Don't care if the insert fails; that means we already know of it.      
 queueItemNL :: Connection -> GAddress -> IO ()
 queueItemNL conn g = handleSqlError $
-    catchSql (insertItemNLNT conn g NotVisited "") (\_ -> return ())
+    queueItemNLNT conn g NotVisited ""
 
 numToProc :: Connection -> IO Integer
 numToProc conn = handleSqlError $
