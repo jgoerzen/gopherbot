@@ -191,7 +191,7 @@ statsthread l c =
        statetxts <- mapM (procstate total) states
        let disp = concat . intersperse ", " $ totaltext : statetxts
        msg disp
-       threadDelay (60 * 1000000)
+       threadDelay (120 * 1000000)
        statsthread l c
     where states = [NotVisited, VisitingNow, Visited, ErrorState]
           procstate total s =
