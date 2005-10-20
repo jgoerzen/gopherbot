@@ -56,9 +56,9 @@ initTables conn = handleSqlError $
        let t2 = map (map toUpper) t
        if not (elem "FILES" t2)
           then do execute conn "CREATE TABLE files (host TEXT, port INTEGER, dtype TEXT, path TEXT, state TEXT, timestamp INTEGER, log TEXT)"
-                  execute conn "CREATE UNIQUE INDEX files1 ON files(host, state, port, path)"
+                  execute conn "CREATE UNIQUE INDEX files1 ON files(host, port, path)"
                   --execute conn "CREATE INDEX files2 ON files(host, port)"
-                  execute conn "CREATE INDEX filesstate ON files (state)"
+                  execute conn "CREATE INDEX filesstate ON files (state, host)"
                   --execute conn "CREATE INDEX files3 ON files(host)"
                   --execute conn "CREATE INDEX files4 ON files(host, state)"
           else return ()
@@ -93,17 +93,30 @@ updateItemNL :: Connection -> GAddress -> State -> String -> IO ()
 updateItemNL conn g s log = handleSqlError $ inTransaction conn (\c ->
                                              updateItemNLNT c g s log)
 
+insertItemNLNT :: Connection -> GAddress -> State -> String -> IO ()
+insertItemNLNT conn g s log =
+    do t <- now
+       execute c $ "INSERT INTO files VALUES (" ++
+              ce (host g) ++ ", " ++
+              toSqlValue (port g) ++ ", " ++
+              ce [dtype g] ++ ", " ++
+              ce (path g) ++ ", " ++
+              ce (show s) ++ ", " ++
+              t ++ ", " ++ ce log ++ ")"
+
 updateItemNLNT :: Connection -> GAddress -> State -> String -> IO ()
 updateItemNLNT c g s log =
-    do execute c $ "DELETE FROM files WHERE " ++ matchClause g
-       t <- now
-       execute c $ "INSERT INTO files VALUES (" ++
-           ce (host g) ++ ", " ++
-           toSqlValue (port g) ++ ", " ++
-           toSqlValue [dtype g] ++ ", " ++
-           ce (path g) ++ ", " ++
-           toSqlValue (show s) ++ ", " ++
-           t ++ ", " ++ ce log ++ ")"
+    do t <- now
+       catchSql (insertItemNLNT c g s log)
+                (\_ -> execute c $ "UPDATE files SET " ++
+                       " host = " ++ ce host g ++
+                       ", port = " ++ toSqlValue (port g) ++
+                       ", dtype = " ++ ce [dtype g] ++
+                       ", path = " ++ ce (path g) ++
+                       ", state = " ++ ce (show s) ++
+                       ", timestamp = " ++ t ++ 
+                       ", log = " ++ ce log ++ " WHERE " ++ matchClause g
+                )
                    
 now = do c <- getClockTime
          return $ toSqlValue ((\(TOD x _) -> x) c)
@@ -121,16 +134,13 @@ queueItem lock conn g = withLock lock $
                         inTransaction conn (\c -> queueItemNL conn g)
 
 queueItems :: Lock -> Connection -> [GAddress] -> IO ()
-queueItems lock conn g = withLock lock $ inTransaction conn (\c ->
-    mapM_ (queueItemNL c) g
-                                                            )
-                                                             
+queueItems lock conn g = withLock lock $ inTransaction conn 
+                         (\c -> mapM_ (queueItemNL c) g)
+                                                       
+-- Don't care if the insert fails; that means we already know of it.      
 queueItemNL :: Connection -> GAddress -> IO ()
 queueItemNL conn g = handleSqlError $
-    do r <- getCount conn (matchClause g)
-       if r == 0
-          then updateItemNLNT conn g NotVisited ""
-          else return ()
+    catchSQL (insertItemNLNT conn g NotVisited "") (\_ -> return ())
 
 numToProc :: Connection -> IO Integer
 numToProc conn = handleSqlError $
