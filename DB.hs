@@ -96,7 +96,7 @@ updateItemNL conn g s log = handleSqlError $ inTransaction conn (\c ->
 insertItemNLNT :: Connection -> GAddress -> State -> String -> IO ()
 insertItemNLNT conn g s log =
     do t <- now
-       execute c $ "INSERT INTO files VALUES (" ++
+       execute conn $ "INSERT INTO files VALUES (" ++
               ce (host g) ++ ", " ++
               toSqlValue (port g) ++ ", " ++
               ce [dtype g] ++ ", " ++
@@ -109,7 +109,7 @@ updateItemNLNT c g s log =
     do t <- now
        catchSql (insertItemNLNT c g s log)
                 (\_ -> execute c $ "UPDATE files SET " ++
-                       " host = " ++ ce host g ++
+                       " host = " ++ ce (host g) ++
                        ", port = " ++ toSqlValue (port g) ++
                        ", dtype = " ++ ce [dtype g] ++
                        ", path = " ++ ce (path g) ++
@@ -140,7 +140,7 @@ queueItems lock conn g = withLock lock $ inTransaction conn
 -- Don't care if the insert fails; that means we already know of it.      
 queueItemNL :: Connection -> GAddress -> IO ()
 queueItemNL conn g = handleSqlError $
-    catchSQL (insertItemNLNT conn g NotVisited "") (\_ -> return ())
+    catchSql (insertItemNLNT conn g NotVisited "") (\_ -> return ())
 
 numToProc :: Connection -> IO Integer
 numToProc conn = handleSqlError $
