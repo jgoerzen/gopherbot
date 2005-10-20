@@ -27,7 +27,7 @@ mergefunc = concat . intersperse "\n" $
  "$$",
  "BEGIN",
  "    LOOP",
- "        UPDATE db SET dtype = dt, state = s, timestampe = ts, log = l",
+ "        UPDATE files SET dtype = dt, state = s, timestamp = ts, log = l",
  "               WHERE host = h AND port = p AND path = pa;",
  "        IF found THEN",
  "            RETURN;",

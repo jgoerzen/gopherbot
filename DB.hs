@@ -84,7 +84,8 @@ noteErrorOnHost l gasupply c h log = handleSqlError $
                execute c $ "UPDATE FILES SET state = " ++
                  ce (show ErrorState) ++
                  ", log = " ++ ce log ++ ", timestamp = " ++ ti ++
-                 " WHERE host = " ++ ce h
+                 " WHERE host = " ++ ce h ++ " AND state = " ++
+                         ce (show NotVisited)
                return (Map.delete t m, ())
                         )
 
