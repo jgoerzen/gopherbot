@@ -204,8 +204,7 @@ statsthread l =
        disconnect c
 
 statsthread' l c =
-    do c <- dbconnect
-       sth <- query c "SELECT state, COUNT(*) from files group by state order by state"
+    do sth <- query c "SELECT state, COUNT(*) from files group by state order by state"
        counts <- (forEachRow (\st s -> do thiss <- getFieldValue st "state"
                                           thisc <- getFieldValue st "count"
                                           return $ (thiss, thisc) : s
