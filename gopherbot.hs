@@ -86,9 +86,11 @@ waitForChildren (c:xs) =
 {- | Main entry point for each worker thread.  We just pop the first item,
 then call procLoop'. -}
 procLoop lock gasupply =
-    do c <- dbconnect
-       i <- popItem lock gasupply c
-       procLoop' lock gasupply c i
+    do bracket dbconnect disconnect (\c -> do
+         i <- popItem lock gasupply c
+         procLoop' lock gasupply c i
+                                    )
+
 
 {- | Main worker loop.  We receive an item and process it.  If it's
 Nothing, there is nothing else to do, so the thread shuts down. 
