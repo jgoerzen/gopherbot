@@ -152,8 +152,11 @@ procIfRobotsOK lock gasupply c item action =
 {- | OK, we have an item.  If it's OK according to robots.txt, download
 and process it. -}
 procItem lock gasupply c item = procIfRobotsOK lock gasupply c item $
-    do msg $ show item          -- Show what we're up to
+    do msg "gb155"
+       msg $ show item          -- Show what we're up to
+       msg "gb157"
        let fspath = getFSPath item
+       msg "gb159"
 
        -- Create the directory for the file to go in, if necessary.
        catch (bracket_ (acquire lock) 
@@ -169,11 +172,16 @@ procItem lock gasupply c item = procIfRobotsOK lock gasupply c item $
        -- Now, download it.  If it's a menu (item type 1), check it for links
        -- (spider it).  Error here means a TCP problem, so mark every
        -- item on this host as having the error.
+       msg "gb175"
        catch (do dlItem item fspath
+                 msg "gb177"
                  when (dtype item == '1') (spider lock c fspath)
+                 msg "gb179"
                  updateItem lock c item Visited ""
+                 msg "gb181"
              )
           (\e -> do msg $ "Error on " ++ (show item) ++ ": " ++ (show e)
+                    msg "gb184"
                     noteErrorOnHost lock gasupply c (host item) (show e)
           )
                   
@@ -181,7 +189,8 @@ procItem lock gasupply c item = procIfRobotsOK lock gasupply c item $
 menu.  This function calles the parser, extracts items, and calles
 DB.queueItems to handle them.  (Insert into DB if new) -}
 spider l c fspath =
-    do netreferences <- parseGMap fspath
+    do msg "gb192"
+       netreferences <- parseGMap fspath
        let refs = filter filt netreferences
        queueItems l c refs
     where filt a = (not ((dtype a) `elem` ['i', '3', '8', '7', '2'])) &&
