@@ -49,12 +49,12 @@ main = niceSocketsDo $          -- Prepare things for sockets
 runScan gasupply l =
     do c <- dbconnect
        n <- numToProc c
-       disconnect c
        msg $ (show n) ++ " items to process"
        when (n == 0)            -- Nothing to do: prime the db
           (mapM_ (\g -> updateItem l c g NotVisited "") startingAddresses)
        {- Fork off the childthreads.  Each one goes into a loop
           of waiting for new items to process and processing them. -}
+       disconnect c
        children <- mapM 
                    (\_ -> myForkOS (procLoop l gasupply)) [1..numThreads]
        -- This is the thread that displays status updates every so often
