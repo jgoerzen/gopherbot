@@ -9,6 +9,6 @@ Build-Depends: base, network, unix, parsec, MissingH>=0.11.5, hsql-postgresql, h
 Executable: gopherbot
 Extensions: ExistentialQuantification, AllowOverlappingInstances,
     AllowUndecidableInstances
-GHC-Options: -O2
+GHC-Options: -O2 -threaded
 Main-Is: gopherbot.hs
 
