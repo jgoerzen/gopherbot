@@ -68,7 +68,7 @@ individual thread dies. -}
 myForkOS :: IO () -> IO (MVar ThreadId)
 myForkOS io =
     do mvar <- newEmptyMVar
-       forkOS (action `finally` (myThreadId >>= putMVar mvar))
+       forkIO (action `finally` (myThreadId >>= putMVar mvar))
        return mvar
     where action = do msg "started."
                       io
