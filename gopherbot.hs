@@ -58,7 +58,7 @@ runScan gasupply l =
        children <- mapM 
                    (\_ -> myForkOS (procLoop l gasupply)) [1..numThreads]
        -- This is the thread that displays status updates every so often
-       stats <- forkOS (statsthread l)
+       --stats <- forkOS (statsthread l)
        -- When the main thread exits, so does the program, so
        -- we wait for all children before exiting.
        waitForChildren children

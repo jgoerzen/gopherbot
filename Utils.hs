@@ -25,7 +25,7 @@ import MissingH.Path
 import Control.Concurrent
 import Control.Exception
 import System.IO
-import Foreign.C.String
+--import Foreign.C.String
 import Data.List
 
 
@@ -64,7 +64,9 @@ msg :: String -> IO ()
 msg l =
     do t <- myThreadId
        let disp = (show t) ++ ": " ++ l ++ "\n"
-       withCStringLen disp (\(c, len) -> hPutBuf stdout c len >> hFlush stdout)
+       putStr disp
+       hFlush stdout
+       --withCStringLen disp (\(c, len) -> hPutBuf stdout c len >> hFlush stdout)
 
 ce :: String -> String
 ce i =
