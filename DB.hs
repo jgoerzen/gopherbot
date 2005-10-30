@@ -185,6 +185,7 @@ beginSearch m conn = handleSqlError  $
                   newsth <- query conn $ "SELECT * FROM files WHERE state = " 
                                        ++ (toSqlValue $ show NotVisited) ++
                                        " AND host = " ++ ce h
+                                       ++ " LIMIT 2000"
                   let newmap = Map.insert t (h, newsth) m
                   fetchSth newmap (h, newsth) conn
           else do closeStatement sth

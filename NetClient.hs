@@ -34,20 +34,20 @@ cto msg action =
               Nothing -> fail msg
               Just x -> return x
 
-dlItem :: GAddress -> FilePath -> IO ()
-dlItem ga fp =
+dlItem :: GAddress -> Handle -> IO ()
+dlItem ga fh = (flip finally) (hClose fh) $
     do s <- cto "Timeout on connect" $ 
             connectTCP (host ga) (fromIntegral . port $ ga)
        (flip finally) (cto "Timeout on close" $ sClose s) 
            $ do cto "Timeout on send" $ sendAll s $ (path ga) ++ "\r\n"
                 --cto "Timeout on shotdown" $ shutdown s ShutdownSend
                 if (dtype ga) == '1'
-                   then dlTillDot s fp
-                   else dlTo s fp
+                   then dlTillDot s fh
+                   else dlTo s fh
        
-dlTillDot s fp =
+dlTillDot s fh =
     do c <- sGetContents s
-       writeFile fp (process c)
+       hPutStr fh (process c)
     where process :: String -> String
           process = unlines . proc' . lines
           proc' :: [String] -> [String]
@@ -83,8 +83,6 @@ sGetContents :: Socket -> IO String
 sGetContents s =
     recvBlocks s (\o n -> return $ o ++ n) []
 
-dlTo :: Socket -> FilePath -> IO ()
-dlTo s fp =
-    do bracket (openFile fp WriteMode)
-               hClose
-               (\h -> recvBlocks s (\() buf -> hPutStr h buf) () )
+dlTo :: Socket -> Handle -> IO ()
+dlTo s fh =
+    recvBlocks s (\() buf -> hPutStr fh buf) ()

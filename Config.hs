@@ -26,6 +26,6 @@ startingAddresses =
 excludeServers = [] --["gopher.quux.org", "quux.org"]
 baseDir = "/home/jgoerzen/tree/gopher-arch"
 
-numThreads = 10
+numThreads = 15
 
 

@@ -35,6 +35,7 @@ import Data.List
 import Control.Exception(bracket_)
 import RobotsTxt
 import Control.Concurrent
+import System.IO
 import qualified Data.Map as Map
 
 {- | Main entry point for the program. -}
@@ -166,16 +167,29 @@ procItem lock gasupply c item = procIfRobotsOK lock gasupply c item $
                        updateItem lock c item ErrorState (show e)
              )
 
-       -- Now, download it.  If it's a menu (item type 1), check it for links
-       -- (spider it).  Error here means a TCP problem, so mark every
-       -- item on this host as having the error.
-       catch (do dlItem item fspath
-                 when (dtype item == '1') (spider lock c fspath)
-                 updateItem lock c item Visited ""
+       fh <- catch ((openFile fspath WriteMode >>= (return . Just)))
+             (\e -> do msg $ "Single-item error on " ++ (show item) ++ ": " ++
+                           (show e)
+                       updateItem lock c item ErrorState (show e)
+                       return Nothing
              )
-          (\e -> do msg $ "Error on " ++ (show item) ++ ": " ++ (show e)
-                    noteErrorOnHost lock gasupply c (host item) (show e)
-          )
+
+       case fh of
+         Nothing -> return ()
+         Just h -> -- Now, download it.  If it's a menu
+                   --(item type 1), check it for links
+                   -- (spider it).  Error here means a TCP
+                   -- problem, so mark every
+                   -- item on this host as having the error.
+                   catch (do dlItem item h
+                             when (dtype item == '1') (spider lock c fspath)
+                             updateItem lock c item Visited ""
+                         )
+                         (\e -> do msg $ "Error on " ++ (show item)
+                                           ++ ": " ++ (show e)
+                                   noteErrorOnHost lock gasupply c 
+                                                   (host item) (show e)
+                         )
                   
 {- | This function is called by procItem whenever it downloads a
 menu.  This function calles the parser, extracts items, and calles
