@@ -48,8 +48,8 @@ initdb =
        handleSqlError $
          do c <- dbconnect
             initTables c
-            r <- getCount c $ "state = " ++ ce (show VisitingNow)
-            execute c "SET ENABLE_SEQSCAN to OFF" []
+            r <- getCount c "state = ?" [toSql VisitingNow]
+            run c "SET ENABLE_SEQSCAN to OFF" []
             when (r > 0) (msg $ "Resetting " ++ (show r) ++ 
                               " files from VisitingNow to NotVisited.")
             run c "UPDATE FILES SET STATE = ? WHERE state = ?"
@@ -70,14 +70,6 @@ initTables conn = handleSqlError $
                   mapM_ (\c -> run conn c []) DBProcs.funcs
           else return ()
 
-matchClause :: GAddress -> String
-matchClause g =
-    "host = " 
-    ++ ce (host g) ++ " AND port = " 
-    ++ toSqlValue (port g) ++ " AND path = "
-    ++ ce (path g) ++ " AND dtype = "
-    ++ toSqlValue [dtype g]
-
 noteErrorOnHost :: Lock -> GASupply -> Connection -> String -> String -> IO ()
 noteErrorOnHost l gasupply c h log = handleSqlError $
      do t <- myThreadId
@@ -86,10 +78,10 @@ noteErrorOnHost l gasupply c h log = handleSqlError $
                msg $ " *** Noting error on host " ++ h
                case Map.lookup t m of
                  Nothing -> return ()
-                 Just (h, sth) -> closeStatement sth
-               run c $ ("UPDATE FILES SET state = ?, log = ?, timestamp = ?"
-                       ++ " WHERE host = ? AND (state = ? OR state = ?)")
-                       [toSql ErrorState, toSql log, toSql ti,
+                 Just (h, sth) -> finish sth
+               run c ("UPDATE FILES SET state = ?, log = ?, timestamp = ?"
+                      ++ " WHERE host = ? AND (state = ? OR state = ?)")
+                       [toSql ErrorState, toSql log, ti,
                         toSql h, toSql NotVisited, toSql VisitingNow]
                return (Map.delete t m, ())
                         )
@@ -98,7 +90,7 @@ updateItem :: Lock -> Connection -> GAddress -> State -> String -> IO ()
 updateItem lock conn g s log = withLock lock $ updateItemNL conn g s log
 
 updateItemNL :: Connection -> GAddress -> State -> String -> IO ()
-updateItemNL conn g s log = handleSqlError $ inTransaction conn (\c ->
+updateItemNL conn g s log = handleSqlError $ withTransaction conn (\c ->
                                              updateItemNLNT c g s log)
 
 mergeItemNLNT :: Connection -> GAddress -> State -> String -> IO ()
@@ -107,12 +99,14 @@ mergeItemNLNT conn g s log =
        run conn "SELECT merge_files (?, ?, ?, ?, ?, ?, ?)"
                  [toSql (host g), toSql (port g), toSql (dtype g),
                   toSql (path g), toSql s, t, toSql log]
+       return ()
 
 queueItemNLNT conn g s log =
     do t <- now
        run conn "SELECT queue_files (?, ?, ?, ?, ?, ?, ?)"
            [toSql (host g), toSql (port g), toSql (dtype g),
             toSql (path g), toSql s, t, toSql log]
+       return ()
 
 updateItemNLNT :: Connection -> GAddress -> State -> String -> IO ()
 updateItemNLNT c g s log = mergeItemNLNT c g s log
@@ -120,15 +114,15 @@ updateItemNLNT c g s log = mergeItemNLNT c g s log
 now = do c <- getClockTime
          return $ toSql ((\(TOD x _) -> x) c)
 
-getCount :: Connection -> String -> IO Integer
+getCount :: Connection -> String -> [SqlValue] -> IO Integer
 getCount conn whereclause parms =
     do r <- quickQuery conn 
             ("SELECT COUNT(*) FROM FILES WHERE " ++ whereclause) parms
-       return $ fromSql r
+       return . fromSql . head . head $ r
 
 queueItem :: Lock -> Connection -> GAddress -> IO ()
 queueItem lock conn g = withLock lock $ 
-                        inTransaction conn (\c -> queueItemNL conn g)
+                        withTransaction conn (\c -> queueItemNL conn g)
 
 queueItems :: Lock -> Connection -> [GAddress] -> IO ()
 queueItems lock conn g = withLock lock $ withTransaction conn 
@@ -141,7 +135,7 @@ queueItemNL conn g = handleSqlError $
 
 numToProc :: Connection -> IO Integer
 numToProc conn = handleSqlError $
-    getCount conn $ "state = ?" [toSql NotVisited]
+    getCount conn "state = ?" [toSql NotVisited]
 
 {- | Gets the next item to visit, if any, and sets the status
 to Visiting.  Returns Nothing if there is no next item.
@@ -160,25 +154,28 @@ popItem lock gamv conn = handleSqlError $ threadDelay 1000000 >>
 
 {- Begin the search for new selectors.  We can assume that this
 thread is not in the map, since this function is only called in that case. -}
+beginSearch :: Map.Map ThreadId (String, Statement) -> Connection -> IO (Map.Map ThreadId (String, Statement), Maybe GAddress)
 beginSearch m conn = handleSqlError  $
     do sth <- prepare conn ("SELECT host FROM files WHERE state = ? " ++ 
                             whereclause ++ " LIMIT 1")
-                           ((toSql NotVisited):params)
+       execute sth ((toSql NotVisited):params)
        t <- myThreadId
        r <- fetchRow sth
        finish sth
        case r of
-         Just h ->
+         Just [h] ->
                do newsth <- prepare conn 
                             "SELECT * FROM files WHERE state = ? AND host = ?\
-                              \ LIMIT 2000" [toSql NotVisited, toSql h]
-                  let newmap = Map.insert t (h, newsth) m
-                  fetchSth newmap (h, newsth) conn
+                              \ LIMIT 2000"
+                  execute newsth [toSql NotVisited, h]
+                  let newmap = Map.insert t (fromSql h, newsth) m
+                  fetchSth newmap (fromSql h, newsth) conn
          Nothing ->
                do msg "No available hosts; dying"
                   -- Couldn't find any available hosts.  For now, we just die.
                   -- FIXME: later should find a better way to do this.
                   return (m, Nothing)
+         x -> fail $ "Unexpected result in beginSearch: " ++ show x
     where whereclause = 
               case map fst (Map.elems m) of
                 [] -> ""
@@ -186,6 +183,9 @@ beginSearch m conn = handleSqlError  $
                                  map (\y -> " host != ?") $ x)
           params = map (toSql . fst) (Map.elems m)
 
+fetchSth :: Map.Map ThreadId (String, Statement) -> (String, Statement) 
+         -> Connection
+         -> IO (Map.Map ThreadId (String, Statement), Maybe GAddress)
 fetchSth m (host, sth) conn =
     do r <- fetchRow sth
        case r of
@@ -194,7 +194,7 @@ fetchSth m (host, sth) conn =
                                         port = fromSql (row !! 1),
                                         dtype = fromSql (row !! 2),
                                         path = fromSql (row !! 3)}))
-          else do t <- myThreadId
-                  finish sth
-                  beginSearch (Map.delete t m) conn
+         Nothing -> do t <- myThreadId
+                       finish sth
+                       beginSearch (Map.delete t m) conn
 
