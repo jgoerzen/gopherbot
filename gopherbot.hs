@@ -24,7 +24,7 @@ import Control.Monad(when, unless)
 import Control.Exception(finally, bracket)
 import System.Directory
 import DB
-import Database.HSQL
+import Database.HDBC
 import Utils
 import MissingH.Path.FilePath
 import MissingH.Network
@@ -209,11 +209,9 @@ statsthread l =
        disconnect c
 
 statsthread' l c =
-    do sth <- query c "SELECT state, COUNT(*) from files group by state order by state"
-       counts <- (forEachRow (\st s -> do thiss <- getFieldValue st "state"
-                                          thisc <- getFieldValue st "count"
-                                          return $ (thiss, thisc) : s
-                             ) sth [])::(IO [(String, Integer)])
+    do res <- quickQuery c "SELECT state, COUNT(*) from files group by state order by state" []
+       let counts = map (\[thiss, thisc] -> (fromSql thiss, 
+                                             (fromSql thisc)::Integer)) res
        let total = sum (map snd counts)
        let totaltext = "Total " ++ show total
        let statetxts = map (\(h, c) -> h ++ " " ++ show c) counts
