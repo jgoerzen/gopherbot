@@ -20,8 +20,8 @@ module DB where
 
 import Types
 import Config(numThreads)
-import Database.HSQL
-import Database.HSQL.PostgreSQL
+import Database.HDBC
+import Database.HDBC.PostgreSQL
 import Data.Char
 import System.IO
 import Data.List
@@ -39,7 +39,7 @@ import qualified DBProcs
 dbconnect :: IO Connection
 dbconnect = handleSqlError $
     do msg " *** Connecting to DB"
-       connect "" "" "" ""
+       connectPostgreSQL ""
 
 {- | Initialize the database system. -}
 initdb :: IO ()
@@ -49,25 +49,25 @@ initdb =
          do c <- dbconnect
             initTables c
             r <- getCount c $ "state = " ++ ce (show VisitingNow)
-            execute c "SET ENABLE_SEQSCAN to OFF"
+            execute c "SET ENABLE_SEQSCAN to OFF" []
             when (r > 0) (msg $ "Resetting " ++ (show r) ++ 
                               " files from VisitingNow to NotVisited.")
-            execute c $ "UPDATE FILES SET STATE = " ++
-                    ce (show NotVisited) ++ " WHERE state = " ++
-                    ce (show VisitingNow)
+            run c "UPDATE FILES SET STATE = ? WHERE state = ?"
+                  [toSql NotVisited, toSql VisitingNow] 
+            commit c
             disconnect c
 
 initTables conn = handleSqlError $
-    do t <- tables conn
+    do t <- getTables conn
        let t2 = map (map toUpper) t
        if not (elem "FILES" t2)
-          then do execute conn "CREATE TABLE files (host TEXT, port INTEGER, dtype TEXT, path TEXT, state TEXT, timestamp INTEGER, log TEXT)"
-                  execute conn "CREATE UNIQUE INDEX files1 ON files(host, port, path)"
+          then do run conn "CREATE TABLE files (host TEXT, port INTEGER, dtype TEXT, path TEXT, state TEXT, timestamp INTEGER, log TEXT)" []
+                  run conn "CREATE UNIQUE INDEX files1 ON files(host, port, path)" []
                   --execute conn "CREATE INDEX files2 ON files(host, port)"
-                  execute conn "CREATE INDEX filesstate ON files (state, host)"
+                  run conn "CREATE INDEX filesstate ON files (state, host)" []
                   --execute conn "CREATE INDEX files3 ON files(host)"
                   --execute conn "CREATE INDEX files4 ON files(host, state)"
-                  mapM_ (execute conn) DBProcs.funcs
+                  mapM_ (\c -> run conn c []) DBProcs.funcs
           else return ()
 
 matchClause :: GAddress -> String
@@ -87,12 +87,10 @@ noteErrorOnHost l gasupply c h log = handleSqlError $
                case Map.lookup t m of
                  Nothing -> return ()
                  Just (h, sth) -> closeStatement sth
-               execute c $ "UPDATE FILES SET state = " ++
-                 ce (show ErrorState) ++
-                 ", log = " ++ ce log ++ ", timestamp = " ++ ti ++
-                 " WHERE host = " ++ ce h ++ " AND (state = " ++
-                         ce (show NotVisited) ++ " OR state = " ++
-                         ce (show VisitingNow) ++ ")"
+               run c $ ("UPDATE FILES SET state = ?, log = ?, timestamp = ?"
+                       ++ " WHERE host = ? AND (state = ? OR state = ?)")
+                       [toSql ErrorState, toSql log, toSql ti,
+                        toSql h, toSql NotVisited, toSql VisitingNow]
                return (Map.delete t m, ())
                         )
 
@@ -106,44 +104,34 @@ updateItemNL conn g s log = handleSqlError $ inTransaction conn (\c ->
 mergeItemNLNT :: Connection -> GAddress -> State -> String -> IO ()
 mergeItemNLNT conn g s log =
     do t <- now
-       execute conn $ "SELECT merge_files (" ++
-              ce (host g) ++ ", " ++
-              toSqlValue (port g) ++ ", " ++
-              ce [dtype g] ++ ", " ++
-              ce (path g) ++ ", " ++
-              ce (show s) ++ ", " ++
-              t ++ ", " ++ ce log ++ ")"
+       run conn "SELECT merge_files (?, ?, ?, ?, ?, ?, ?)"
+                 [toSql (host g), toSql (port g), toSql (dtype g),
+                  toSql (path g), toSql s, t, toSql log]
 
 queueItemNLNT conn g s log =
     do t <- now
-       execute conn $ "SELECT queue_files (" ++
-              ce (host g) ++ ", " ++
-              toSqlValue (port g) ++ ", " ++
-              ce [dtype g] ++ ", " ++
-              ce (path g) ++ ", " ++
-              ce (show s) ++ ", " ++
-              t ++ ", " ++ ce log ++ ")"
+       run conn "SELECT queue_files (?, ?, ?, ?, ?, ?, ?)"
+           [toSql (host g), toSql (port g), toSql (dtype g),
+            toSql (path g), toSql s, t, toSql log]
 
 updateItemNLNT :: Connection -> GAddress -> State -> String -> IO ()
 updateItemNLNT c g s log = mergeItemNLNT c g s log
                    
 now = do c <- getClockTime
-         return $ toSqlValue ((\(TOD x _) -> x) c)
+         return $ toSql ((\(TOD x _) -> x) c)
 
 getCount :: Connection -> String -> IO Integer
-getCount conn whereclause =
-    do sth <- query conn $ "SELECT COUNT(*) FROM FILES WHERE " ++ whereclause
-       h <- fetch sth
-       r <- getFieldValue sth "count"
-       closeStatement sth
-       return r
+getCount conn whereclause parms =
+    do r <- quickQuery conn 
+            ("SELECT COUNT(*) FROM FILES WHERE " ++ whereclause) parms
+       return $ fromSql r
 
 queueItem :: Lock -> Connection -> GAddress -> IO ()
 queueItem lock conn g = withLock lock $ 
                         inTransaction conn (\c -> queueItemNL conn g)
 
 queueItems :: Lock -> Connection -> [GAddress] -> IO ()
-queueItems lock conn g = withLock lock $ inTransaction conn 
+queueItems lock conn g = withLock lock $ withTransaction conn 
                          (\c -> mapM_ (queueItemNL c) g)
                                                        
 -- Don't care if the insert fails; that means we already know of it.      
@@ -153,7 +141,7 @@ queueItemNL conn g = handleSqlError $
 
 numToProc :: Connection -> IO Integer
 numToProc conn = handleSqlError $
-    getCount conn $ "state = " ++ (toSqlValue (show NotVisited))
+    getCount conn $ "state = ?" [toSql NotVisited]
 
 {- | Gets the next item to visit, if any, and sets the status
 to Visiting.  Returns Nothing if there is no next item.
@@ -173,23 +161,21 @@ popItem lock gamv conn = handleSqlError $ threadDelay 1000000 >>
 {- Begin the search for new selectors.  We can assume that this
 thread is not in the map, since this function is only called in that case. -}
 beginSearch m conn = handleSqlError  $
-    do sth <- query conn $ "SELECT host FROM files WHERE state = " ++
-                           (toSqlValue $ show NotVisited) ++ " "
-                           ++ whereclause
-                           ++ " LIMIT 1"
+    do sth <- prepare conn ("SELECT host FROM files WHERE state = ? " ++ 
+                            whereclause ++ " LIMIT 1")
+                           ((toSql NotVisited):params)
        t <- myThreadId
-       r <- fetch sth
-       if r
-          then do h <- getFieldValue sth "host"
-                  closeStatement sth
-                  newsth <- query conn $ "SELECT * FROM files WHERE state = " 
-                                       ++ (toSqlValue $ show NotVisited) ++
-                                       " AND host = " ++ ce h
-                                       ++ " LIMIT 2000"
+       r <- fetchRow sth
+       finish sth
+       case r of
+         Just h ->
+               do newsth <- prepare conn 
+                            "SELECT * FROM files WHERE state = ? AND host = ?\
+                              \ LIMIT 2000" [toSql NotVisited, toSql h]
                   let newmap = Map.insert t (h, newsth) m
                   fetchSth newmap (h, newsth) conn
-          else do closeStatement sth
-                  msg "No available hosts; dying"
+         Nothing ->
+               do msg "No available hosts; dying"
                   -- Couldn't find any available hosts.  For now, we just die.
                   -- FIXME: later should find a better way to do this.
                   return (m, Nothing)
@@ -197,27 +183,18 @@ beginSearch m conn = handleSqlError  $
               case map fst (Map.elems m) of
                 [] -> ""
                 x -> " AND " ++ (concat . intersperse " AND " . 
-                                 map (\y -> " host != " ++ ce y) $ x)
+                                 map (\y -> " host != ?") $ x)
+          params = map (toSql . fst) (Map.elems m)
 
 fetchSth m (host, sth) conn =
-    do r <- fetch sth
-       if r
-          then do h <- getFieldValue sth "host"
-                  p <- getFieldValue sth "port"
-                  pa <- getFieldValue sth "path"
-                  dt <- getFieldValue sth "dtype"
-                  let po = read p
-                  let ga = GAddress {host = h, port = po, 
-                                     path = pa, dtype = head dt}
-                  return (m, Just ga)
-
+    do r <- fetchRow sth
+       case r of
+         Just row ->
+             return (m, Just (GAddress {host = fromSql (head row),
+                                        port = fromSql (row !! 1),
+                                        dtype = fromSql (row !! 2),
+                                        path = fromSql (row !! 3)}))
           else do t <- myThreadId
-                  closeStatement sth
+                  finish sth
                   beginSearch (Map.delete t m) conn
-
-{- | Propogate SQL exceptions to IO monad. -}
-handleSqlError :: IO a -> IO a
-handleSqlError action =
-    catchSql action handler
-    where handler e = fail ("SQL error: " ++ show e)
 

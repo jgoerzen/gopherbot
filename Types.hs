@@ -21,12 +21,17 @@ import Control.Concurrent(ThreadId)
 import Control.Concurrent.MVar(MVar)
 import Data.List
 import Data.Map(Map)
-import Database.HSQL(Statement)
+import Database.HDBC
 
 type GASupply = MVar (Map ThreadId (String, Statement))
 
 data State = NotVisited | VisitingNow | Visited | ErrorState | Excluded
     deriving (Eq, Read, Show)
+
+instance SqlType State where
+    toSql s = SqlString (show s)
+    fromSql (SqlString s) = read s
+    fromSql x = error $ "Cannot convert " ++ show x ++ " into gopherbot.State"
 
 data GAddress = GAddress {host :: String, port :: Int, dtype :: Char,
                           path :: String}
