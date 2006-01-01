@@ -83,6 +83,7 @@ noteErrorOnHost l gasupply c h log = handleSqlError $
                       ++ " WHERE host = ? AND (state = ? OR state = ?)")
                        [toSql ErrorState, toSql log, ti,
                         toSql h, toSql NotVisited, toSql VisitingNow]
+               commit c
                return (Map.delete t m, ())
                         )
 
